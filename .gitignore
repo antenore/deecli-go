@@ -1,0 +1,85 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Dependency directories
+vendor/
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Build output
+deecli
+deecli-*
+dist/
+build/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# LLM and AI assistant files
+.claude/
+claude.json
+.claude-code/
+.cursor/
+cursor.json
+.github/copilot/
+.aider/
+.aider.conf.yml
+
+# Environment and config files with sensitive data
+.env
+.env.local
+.env.*.local
+*.env
+
+# API keys and secrets
+*_api_key*
+*_secret*
+*.key
+*.pem
+
+# User configuration
+.deecli/config.yaml
+.deecli/config.yml
+
+# Session files
+*.db
+*.sqlite
+*.sqlite3
+session.json
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+*.log
+
+# Debug files
+debug
+__debug_bin*
+
+# OS files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+ctags
+.deecli
+
