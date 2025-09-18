@@ -30,13 +30,93 @@ export DEEPSEEK_API_KEY='your-key-here'
 ./deecli analyze main.go
 ```
 
-## Main features
+## Usage
 
-### Chat interface
+### Chat Interface Navigation
+
+**Smart Tab**: Context-aware behavior
+- Show/accept file completions when available
+- Switch focus between panes when no completions
+- Focus cycle: Input → Chat History → Files Sidebar → Input
+
+**Function Keys**:
+- `F1` - Toggle help
+- `F2` - Toggle files sidebar
+
+**Focus & Navigation**:
+- `Esc` / `Enter` - Return to input mode from any pane
+- `↑/↓` - Scroll in focused pane OR navigate history (single-line input only)
+- `PgUp/PgDn` - Page up/down in viewports
+- `Ctrl+U/D` - Half page up/down in viewports
+- `Home/End` - Jump to top/bottom in viewports
+
+### Text Editing Shortcuts
+
+**Word Operations**:
+- `Ctrl+W` - Delete word backward
+- `Alt+Backspace` - Delete word backward (alternative)
+- `Alt+D` - Delete word forward
+- `Alt+F/B` - Move word forward/backward
+
+**Line Operations**:
+- `Ctrl+A` - Jump to line start
+- `Ctrl+E` - Jump to line end
+- `Ctrl+K` - Delete from cursor to line end
+- `Ctrl+U` - Delete from cursor to line start
+
+**Character Operations**:
+- `Ctrl+F/B` - Move character forward/backward
+- `Ctrl+H` - Delete character backward
+- `Ctrl+D` - Delete character forward
+- `Ctrl+T` - Transpose characters
+
+**Text Transformation**:
+- `Alt+C` - Capitalize word forward
+- `Alt+L` - Lowercase word forward
+- `Alt+U` - Uppercase word forward
+
+**Multi-line Input**:
+- Configurable newline key (default: `Ctrl+J`)
+- `Enter` - Send message
+- `Ctrl+V` - Paste
+
+**History Navigation**:
+- `↑/↓` - Navigate command history (single-line input only)
+- `Ctrl+P/N` - Alternative history navigation keys
+
+### Chat Commands
+
+All commands start with `/` and support tab completion:
+
+**File Management**:
+- `/load <file>` - Load files (supports glob patterns like `*.go`, `**/*.py`)
+- `/add <file>` - Add more files to context
+- `/reload` - Refresh files from disk
+- `/edit <file>` - Open file in external editor
+- `/list` - Show loaded files
+- `/clear` - Clear all context
+
+**Session Management**:
+- `/history` - Show command history
+- `/help` - Show detailed help
+- `/quit` - Exit application
+
+**Configuration**:
+- `/config show` - Display current settings
+- `/config init` - Initialize configuration
+- `/keysetup <key>` - Configure keyboard shortcuts
+
+**AI Operations**:
+- `/analyze` - Analyze loaded code
+- Type any message to chat with the AI about your code
+
+### Main Features
+
+**Chat Interface**:
 - Tab completion for files and commands
-- Multi-line input (Ctrl+Enter for new lines)
-- Scrollable history
-- File sidebar (F2 to toggle)
+- Multi-line input support
+- Scrollable chat history
+- File sidebar with loaded files
 
 ### File handling
 - Load files with patterns: `*.go`, `**/*.go`, `{*.go,*.md}`

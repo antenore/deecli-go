@@ -89,7 +89,7 @@ func (l *Layout) RenderHeader(filesCount int, focusMode string) string {
 		newlineKeyDisplay = l.FormatKeyForDisplay(key)
 	}
 
-	header := headerStyle.Render(fmt.Sprintf("DeeCLI | F: %d | NL: %s | F1 | F2 | C-W%s",
+	header := headerStyle.Render(fmt.Sprintf("DeeCLI | F: %d | NL: %s | F1 | F2 | Tab%s",
 		filesCount, newlineKeyDisplay, focusIndicator))
 
 	return header

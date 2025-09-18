@@ -181,7 +181,7 @@ func (m *Manager) FormatInitialContent() string {
 	welcomeContent := fmt.Sprintf(`🐉 DeeCLI - AI Code Assistant | %s
 
 Essential Commands: /load <file> /add <file> /list /clear /analyze /history /keysetup /help
-Quick Keys: Tab=complete %s=newline %s/%s=history F1=help F2=files Ctrl+W=focus
+Quick Keys: Tab=complete/focus %s=newline ↑/↓ or %s/%s=history F1=help F2=files
 
 💡 Start by loading files: /load *.go or /load main.go
    Press F1 for detailed help, Tab for completion`,
@@ -230,26 +230,28 @@ func (m *Manager) HelpContent() string {
 /quit           Exit the application
 
 === Keyboard Shortcuts ===
-Tab             Show completions; ↑↓ cycle; Tab/Enter accept
+Tab             Smart: show/accept completions OR switch focus
 Enter           Send message
 %s         New line in message
-%s         Previous history
-%s         Next history
+↑ or %s    Previous history (single-line input only)
+↓ or %s    Next history (single-line input only)
 F1              Toggle this help
 F2              Toggle files sidebar
 Esc             Cancel ongoing AI response
 Ctrl+C          Exit application
-Ctrl+W          Cycle focus between panes
+Ctrl+W          Delete word backward
+Ctrl+U/K        Delete to line start/end
+Alt+Backspace   Delete word backward (alternative)
 
 === Focus Modes ===
 ✏️ INPUT        Type messages and commands
 📜 CHAT         Scroll through chat history
 📁 FILES        Browse loaded files (when F2 open)
 
-Ctrl+W cycles: Input → Chat → Files (if open) → Input
+Tab cycles focus: Input → Chat → Files (if open) → Input
 
 === Navigation ===
-↑/↓             Scroll line by line in focused pane
+↑/↓             Scroll in viewport/sidebar OR history in input (single-line)
 PgUp/PgDn       Page up/down
 Ctrl+U/Ctrl+D   Half page up/down
 Home/End        Jump to top/bottom
@@ -266,7 +268,8 @@ You can use glob patterns to load multiple files:
 === Tips ===
 • Multi-line messages: Use %s to add new lines
 • Quick submit: Just press Enter to send your message
-• Press Ctrl+W to switch between panes
+• Press Tab (when no completions) to switch between panes
+• Standard text editing shortcuts work (Ctrl+W, Ctrl+U, Ctrl+K, etc.)
 • Yellow border shows which pane has focus
 • Tab shows completions, use ↑↓ arrows to cycle, Tab/Enter to accept, Esc to cancel
 • Arrow keys scroll in focused panes

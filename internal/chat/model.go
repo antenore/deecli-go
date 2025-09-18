@@ -449,7 +449,7 @@ func (m *NewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		// Handle key detection mode first (highest priority)
-		if m.keyDetector.IsDetecting() {
+		if m.keyDetector != nil && m.keyDetector.IsDetecting() {
 			return m, m.keyDetector.HandleDetection(msg.String())
 		}
 		
@@ -484,28 +484,7 @@ func (m *NewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.layout()
 			return m, nil
-		case "ctrl+w":
-			// Improved focus cycling
-			switch m.focusMode {
-			case "input":
-				m.focusMode = "viewport"
-				m.textarea.Blur()
-			case "viewport":
-				if m.filesWidgetVisible {
-					m.focusMode = "sidebar"
-					m.sidebarViewport.GotoTop()
-				} else {
-					m.focusMode = "input"
-					m.textarea.Focus()
-				}
-			case "sidebar":
-				m.focusMode = "input"
-				m.textarea.Focus()
-			default:
-				m.focusMode = "input"
-				m.textarea.Focus()
-			}
-			return m, nil
+		// Removed ctrl+w interception - now it naturally deletes words in textarea
 		}
 
 		// Handle viewport scrolling when viewport has focus
@@ -515,6 +494,16 @@ func (m *NewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.viewport, cmd = m.viewport.Update(msg)
 				cmds = append(cmds, cmd)
 				return m, tea.Batch(cmds...)
+			case "tab":
+				// Continue focus cycle from viewport
+				if m.filesWidgetVisible {
+					m.focusMode = "sidebar"
+					m.sidebarViewport.GotoTop()
+				} else {
+					m.focusMode = "input"
+					m.textarea.Focus()
+				}
+				return m, nil
 			case "enter", "esc":
 				m.focusMode = "input"
 				m.textarea.Focus()
@@ -529,6 +518,11 @@ func (m *NewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.sidebarViewport, cmd = m.sidebarViewport.Update(msg)
 				cmds = append(cmds, cmd)
 				return m, tea.Batch(cmds...)
+			case "tab":
+				// Complete focus cycle - back to input
+				m.focusMode = "input"
+				m.textarea.Focus()
+				return m, nil
 			case "enter", "esc":
 				m.focusMode = "input"
 				m.textarea.Focus()
@@ -562,13 +556,58 @@ func (m *NewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.inputManager.ClearCompletions()
 						return m, nil
 					}
+				} else {
+					// No completions shown - handle arrow keys for history navigation
+					// Only use arrows for history if input is single-line
+					currentInput := m.textarea.Value()
+					isMultiLine := strings.Contains(currentInput, "\n")
+
+					if !isMultiLine && m.inputManager != nil {
+						switch msg.String() {
+						case "up":
+							if m.inputManager.HandleHistoryBack(&m.textarea) {
+								return m, nil
+							}
+						case "down":
+							if m.inputManager.HandleHistoryForward(&m.textarea) {
+								return m, nil
+							}
+						}
+					}
 				}
 			}
 
-			// Handle Tab completion BEFORE textarea gets the key
+			// Smart Tab: completion if available, focus switch otherwise
+			// (Tab for accepting completions is already handled above when completions are shown)
 			if msg.String() == "tab" && m.inputManager != nil {
 				input := m.textarea.Value()
-				m.inputManager.HandleTabCompletion(input)
+
+				// Try to show completions
+				if m.inputManager.HandleTabCompletion(input) {
+					// Completions are now showing
+					return m, nil
+				}
+
+				// No completions available, use Tab for focus switching
+				switch m.focusMode {
+				case "input":
+					m.focusMode = "viewport"
+					m.textarea.Blur()
+				case "viewport":
+					if m.filesWidgetVisible {
+						m.focusMode = "sidebar"
+						m.sidebarViewport.GotoTop()
+					} else {
+						m.focusMode = "input"
+						m.textarea.Focus()
+					}
+				case "sidebar":
+					m.focusMode = "input"
+					m.textarea.Focus()
+				default:
+					m.focusMode = "input"
+					m.textarea.Focus()
+				}
 				return m, nil
 			}
 			

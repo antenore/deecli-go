@@ -73,8 +73,9 @@ func (m *Manager) HandleHistoryBack(textarea *textarea.Model) bool {
 	if m.historyIndex < len(m.inputHistory)-1 {
 		m.historyIndex++
 		textarea.SetValue(m.inputHistory[len(m.inputHistory)-1-m.historyIndex])
+		return true
 	}
-	return true
+	return false
 }
 
 // HandleHistoryForward navigates forward in history
