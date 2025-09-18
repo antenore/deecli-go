@@ -20,7 +20,7 @@
 - **Smart Tab Navigation**: Context-aware Tab for completion and focus switching with full cycle support
 - **Standard Text Editing Shortcuts**: Enabled all Bubbletea textarea shortcuts including Ctrl+W word deletion
 - **Arrow Key History Navigation**: Up/down arrows navigate command history for single-line input
-- **Comprehensive Documentation**: Added complete Usage section to README with all keyboard shortcuts
+- **Enhanced /edit Command**: Smart file detection without arguments, prioritizes loaded files from AI context
 
 ## 📋 Near-Term Roadmap
 
