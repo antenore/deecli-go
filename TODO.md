@@ -17,10 +17,10 @@
 - [ ] **File Change Detection**: Auto-reload files when modified externally
 
 ## ✅ Recently Completed (max 2 to 4 items)
-- **Streaming API Responses**: Implemented real-time SSE streaming with proper buffering and cancellation support
-- **Unified /config Command**: Complete configuration management from chat interface with persistence
-- **Enhanced /edit Command**: Fixed logic to prioritize loaded files from conversation context over non-existent files
-- **Major Architecture Refactoring**: Reduced model.go from 1456 to 852 lines through modularization
+- **Smart Tab Navigation**: Context-aware Tab for completion and focus switching with full cycle support
+- **Standard Text Editing Shortcuts**: Enabled all Bubbletea textarea shortcuts including Ctrl+W word deletion
+- **Arrow Key History Navigation**: Up/down arrows navigate command history for single-line input
+- **Comprehensive Documentation**: Added complete Usage section to README with all keyboard shortcuts
 
 ## 📋 Near-Term Roadmap
 
