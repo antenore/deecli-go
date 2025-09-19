@@ -19,6 +19,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/antenore/deecli/internal/files"
 )
 
 // TrackedFile represents a file mentioned in an AI response
@@ -44,6 +46,12 @@ func NewFileTracker() *FileTracker {
 
 // ExtractFilesFromResponse extracts file paths from an AI response
 func (ft *FileTracker) ExtractFilesFromResponse(response string) []TrackedFile {
+	return ft.ExtractFilesFromResponseWithContext(response, nil)
+}
+
+// ExtractFilesFromResponseWithContext extracts file paths from an AI response
+// and resolves full paths using loaded files context if provided
+func (ft *FileTracker) ExtractFilesFromResponseWithContext(response string, loadedFiles []files.LoadedFile) []TrackedFile {
 	ft.mu.Lock()
 	defer ft.mu.Unlock()
 
@@ -66,8 +74,10 @@ func (ft *FileTracker) ExtractFilesFromResponse(response string) []TrackedFile {
 			if isEditSuggestionResponse {
 				source = "edit_suggestion"
 			}
+			cleanedPath := cleanPath(match[1])
+			resolvedPath := resolvePathFromLoadedFiles(cleanedPath, loadedFiles)
 			file := TrackedFile{
-				Path:        cleanPath(match[1]),
+				Path:        resolvedPath,
 				Description: "Code block reference",
 				Timestamp:   time.Now(),
 				Source:      source,
@@ -82,8 +92,10 @@ func (ft *FileTracker) ExtractFilesFromResponse(response string) []TrackedFile {
 	bulletMatches := bulletPattern.FindAllStringSubmatch(response, -1)
 	for _, match := range bulletMatches {
 		if len(match) > 2 {
+			cleanedPath := cleanPath(match[1])
+			resolvedPath := resolvePathFromLoadedFiles(cleanedPath, loadedFiles)
 			file := TrackedFile{
-				Path:        cleanPath(match[1]),
+				Path:        resolvedPath,
 				Description: strings.TrimSpace(match[2]),
 				Timestamp:   time.Now(),
 				Source:      "edit_suggestion",
@@ -110,8 +122,10 @@ func (ft *FileTracker) ExtractFilesFromResponse(response string) []TrackedFile {
 				description = "Suggested file"
 			}
 
+			cleanedPath := cleanPath(match[1])
+			resolvedPath := resolvePathFromLoadedFiles(cleanedPath, loadedFiles)
 			file := TrackedFile{
-				Path:        cleanPath(match[1]),
+				Path:        resolvedPath,
 				Description: description,
 				Timestamp:   time.Now(),
 				Source:      source,
@@ -229,4 +243,35 @@ func containsFile(files []TrackedFile, path string) bool {
 		}
 	}
 	return false
+}
+
+// resolvePathFromLoadedFiles attempts to find the full path for a filename
+// by checking against loaded files in the context
+func resolvePathFromLoadedFiles(path string, loadedFiles []files.LoadedFile) string {
+	if loadedFiles == nil || len(loadedFiles) == 0 {
+		return path
+	}
+
+	// Clean the path first
+	cleanedPath := strings.TrimSpace(path)
+
+	// First check for exact match
+	for _, loaded := range loadedFiles {
+		if loaded.RelPath == cleanedPath || loaded.Path == cleanedPath {
+			return loaded.RelPath
+		}
+	}
+
+	// Check if the path is just a filename and match against loaded files
+	baseName := filepath.Base(cleanedPath)
+	for _, loaded := range loadedFiles {
+		loadedBaseName := filepath.Base(loaded.RelPath)
+		if loadedBaseName == baseName {
+			// Found a match - use the full relative path from the loaded file
+			return loaded.RelPath
+		}
+	}
+
+	// No match found, return original path
+	return cleanedPath
 }

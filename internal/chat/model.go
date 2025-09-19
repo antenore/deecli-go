@@ -927,7 +927,7 @@ func (m *NewModel) handleAPIResponse(response string, err error) {
 		m.addMessage("assistant", response)
 		// Track files mentioned in the AI response
 		if m.fileTracker != nil {
-			m.fileTracker.ExtractFilesFromResponse(response)
+			m.fileTracker.ExtractFilesFromResponseWithContext(response, m.fileContext.Files)
 		}
 	}
 	m.viewport.GotoBottom()
@@ -984,7 +984,7 @@ func (m *NewModel) handleStreamComplete(content string, err error) {
 
 		// Track files mentioned in the AI response
 		if m.fileTracker != nil {
-			m.fileTracker.ExtractFilesFromResponse(content)
+			m.fileTracker.ExtractFilesFromResponseWithContext(content, m.fileContext.Files)
 		}
 		// Add to API messages for history
 		m.apiMessages = append(m.apiMessages, api.Message{

@@ -15,10 +15,11 @@ package commands
 
 import (
 	"fmt"
-	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 
-	"github.com/antenore/deecli/internal/chat/tracker"
 	"github.com/antenore/deecli/internal/editor"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -84,72 +85,131 @@ func (ai *AICommands) Improve(args []string) tea.Cmd {
 	return ai.deps.ImproveFiles()
 }
 
+// getFileFromRecentContext analyzes recent user messages to find the most recently mentioned loaded file
+func (ai *AICommands) getFileFromRecentContext() string {
+	if len(ai.deps.Messages) == 0 || len(ai.deps.FileContext.Files) == 0 {
+		return ""
+	}
+
+	// Look at the last 5 user messages for file mentions
+	messageCount := 0
+	for i := len(ai.deps.Messages) - 1; i >= 0 && messageCount < 5; i-- {
+		message := ai.deps.Messages[i]
+
+		// Skip AI responses (they typically start with system indicators or have certain patterns)
+		if strings.HasPrefix(message, "DeeCLI:") || strings.HasPrefix(message, "🤖") ||
+		   strings.Contains(message, "📝") || strings.Contains(message, "system:") {
+			continue
+		}
+
+		messageCount++
+
+		// Look for file mentions in user messages
+		if filePath := ai.extractFileFromMessage(message); filePath != "" {
+			return filePath
+		}
+	}
+
+	return ""
+}
+
+// extractFileFromMessage extracts a loaded file path mentioned in a message
+func (ai *AICommands) extractFileFromMessage(message string) string {
+	// Pattern to match file paths with extensions
+	filePattern := regexp.MustCompile(`\b([a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]+)\b`)
+	matches := filePattern.FindAllString(message, -1)
+
+	for _, match := range matches {
+		// Clean the match
+		cleanMatch := strings.TrimSpace(match)
+
+		// Check if this file is currently loaded
+		for _, loadedFile := range ai.deps.FileContext.Files {
+			// Direct match
+			if loadedFile.RelPath == cleanMatch || loadedFile.Path == cleanMatch {
+				return loadedFile.RelPath
+			}
+
+			// Basename match
+			if filepath.Base(loadedFile.RelPath) == filepath.Base(cleanMatch) {
+				return loadedFile.RelPath
+			}
+
+			// Contains match (for partial paths)
+			if strings.Contains(loadedFile.RelPath, cleanMatch) {
+				return loadedFile.RelPath
+			}
+		}
+	}
+
+	return ""
+}
+
+// showInteractiveFileSelection displays a numbered list of loaded files for user selection
+func (ai *AICommands) showInteractiveFileSelection() tea.Cmd {
+	if len(ai.deps.FileContext.Files) == 0 {
+		ai.deps.MessageLogger("system", "No files loaded. Use /load <file> to load files first, or specify a file with /edit <filepath>")
+		return nil
+	}
+
+	if len(ai.deps.FileContext.Files) == 1 {
+		// Only one file loaded, use it directly
+		file := ai.deps.FileContext.Files[0]
+		config := editor.Config{
+			MessageProvider: func() []string { return ai.deps.Messages },
+			MessageLogger:   ai.deps.MessageLogger,
+		}
+		ai.deps.MessageLogger("system", fmt.Sprintf("📝 Opening only loaded file: %s", file.RelPath))
+		return editor.OpenFileWithInstructions(file.RelPath, config)
+	}
+
+	// Multiple files - show selection menu
+	var fileList strings.Builder
+	fileList.WriteString("📝 Edit which file?\n")
+
+	for i, file := range ai.deps.FileContext.Files {
+		fileList.WriteString(fmt.Sprintf("[%d] %s\n", i+1, file.RelPath))
+	}
+
+	fileList.WriteString("Enter number (1-")
+	fileList.WriteString(fmt.Sprintf("%d", len(ai.deps.FileContext.Files)))
+	fileList.WriteString(") or filename:")
+
+	ai.deps.MessageLogger("system", fileList.String())
+	return nil
+}
+
 // Edit handles the /edit command (both with and without arguments)
 func (ai *AICommands) Edit(args []string) tea.Cmd {
 	if len(args) < 1 {
-		// Check if we have cached file suggestions from previous AI responses
-		if ai.deps.FileTracker != nil && ai.deps.FileTracker.HasSuggestions() {
-			suggestions := ai.deps.FileTracker.GetEditSuggestions()
-
-			// Prioritize files that are currently loaded or exist
-			var bestFile *tracker.TrackedFile
-
-			// First, look for files that are currently loaded in the context
-			for _, suggestion := range suggestions {
-				for _, loadedFile := range ai.deps.FileContext.Files {
-					if suggestion.Path == loadedFile.RelPath ||
-					   strings.HasSuffix(loadedFile.RelPath, suggestion.Path) {
-						bestFile = &suggestion
-						break
-					}
-				}
-				if bestFile != nil {
-					break
-				}
+		// First, try to find a file from recent conversation context
+		if contextFile := ai.getFileFromRecentContext(); contextFile != "" {
+			config := editor.Config{
+				MessageProvider: func() []string { return ai.deps.Messages },
+				MessageLogger:   ai.deps.MessageLogger,
 			}
-
-			// If no loaded file matches, check for files that exist on disk
-			if bestFile == nil {
-				for _, suggestion := range suggestions {
-					if fileExists(suggestion.Path) {
-						bestFile = &suggestion
-						break
-					}
-				}
-			}
-
-			// If still no match, take the most recent suggestion
-			if bestFile == nil && len(suggestions) > 0 {
-				bestFile = &suggestions[0]
-			}
-
-			if bestFile != nil {
-				config := editor.Config{
-					MessageProvider: func() []string { return ai.deps.Messages },
-					MessageLogger:   ai.deps.MessageLogger,
-				}
-				ai.deps.MessageLogger("system", fmt.Sprintf("📝 Opening suggested file: %s", bestFile.Path))
-				if bestFile.Description != "" {
-					ai.deps.MessageLogger("system", fmt.Sprintf("   Reason: %s", bestFile.Description))
-				}
-				return editor.OpenFileWithInstructions(bestFile.Path, config)
-			}
+			ai.deps.MessageLogger("system", fmt.Sprintf("📝 Opening file from context: %s", contextFile))
+			return editor.OpenFileWithInstructions(contextFile, config)
 		}
 
-		// Fallback to generating new suggestions if no cached files
-		if len(ai.deps.FileContext.Files) == 0 {
-			ai.deps.MessageLogger("system", "No files loaded. Use /load <file> to load files first, or specify a file with /edit <filepath>")
+		// If no context, show interactive file selection
+		return ai.showInteractiveFileSelection()
+	}
+
+	// Check if the argument is a number (for file selection)
+	if fileIndex, err := strconv.Atoi(args[0]); err == nil {
+		if fileIndex >= 1 && fileIndex <= len(ai.deps.FileContext.Files) {
+			selectedFile := ai.deps.FileContext.Files[fileIndex-1]
+			config := editor.Config{
+				MessageProvider: func() []string { return ai.deps.Messages },
+				MessageLogger:   ai.deps.MessageLogger,
+			}
+			ai.deps.MessageLogger("system", fmt.Sprintf("📝 Opening selected file [%d]: %s", fileIndex, selectedFile.RelPath))
+			return editor.OpenFileWithInstructions(selectedFile.RelPath, config)
+		} else {
+			ai.deps.MessageLogger("system", fmt.Sprintf("Invalid file number. Please use 1-%d", len(ai.deps.FileContext.Files)))
 			return nil
 		}
-
-		if ai.deps.APIClient == nil {
-			ai.deps.MessageLogger("system", "Please set DEEPSEEK_API_KEY environment variable")
-			return nil
-		}
-
-		ai.deps.SetLoading(true, "Analyzing conversation for edit suggestions...")
-		ai.deps.RefreshUI()
-		return ai.deps.GenerateEditSuggestions()
 	}
 
 	// Open specific file in editor
@@ -160,8 +220,3 @@ func (ai *AICommands) Edit(args []string) tea.Cmd {
 	return editor.OpenFileWithInstructions(args[0], config)
 }
 
-// fileExists checks if a file exists on disk
-func fileExists(filename string) bool {
-	_, err := os.Stat(filename)
-	return !os.IsNotExist(err)
-}

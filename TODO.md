@@ -6,11 +6,15 @@
 
 ### P0: Critical Bugs & Must-Haves
 - [x] **Bug: `/edit` command lacks context awareness.** FIXED: `/edit` now analyzes recent conversation context to identify the file being discussed, with interactive fallback for multiple files
+- [ ] **Testing Infrastructure**: Create comprehensive test suite with:
+  - [ ] **Unit Test Framework**: Move existing unit tests to dedicated `test/unit/` directory
+  - [ ] **Integration Test Setup**: Add integration tests for API interactions and file operations
+  - [ ] **Mock Infrastructure**: Create mock implementations for external dependencies (API, file system)
+  - [ ] **Test Coverage Goals**: Set minimum coverage targets (e.g., 80% for core modules)
 - [ ] **Visual Thinking Indicator**: Add a spinner or visual effect when the AI is processing a request.
 - [ ] **Assistant Identity**: Ensure the assistant is consistently named "DeeCLI" across the UI, commands, and prompts.
 - [ ] **File Change Detection**: Implement auto-reload for files modified externally (listed but not yet implemented).
 - [ ] **Enhanced Config Validation**: Add validation for model whitelists and key bindings with clear, helpful error messages.
-- [ ] **Testing Infrastructure**: Create comprehensive unit tests for critical modules (chat, file handling, config).
 
 ### P1: High-Impact User Experience
 - [ ] **User Name Configuration**: Allow users to set a display name during setup (replacing the generic "You:").
@@ -84,12 +88,12 @@
 ## ✅ Recently Completed
 
 *Keep this section to celebrate progress and provide context.* (Keep at max 6 entries)
+- **Fixed `/edit` Context Awareness Bug** - Conversation context detection with interactive fallback
+- **Added AI Commands Unit Tests** - Comprehensive test coverage for context detection
 - **Arrow Key History Navigation**
 - **Enhanced `/edit` Command** with smart file detection
 - **Fixed `/edit` Path Resolution**
-- **Single `/edit` Invocation**
 - **Streaming API Responses**
-- **Configuration Completion** (Unified `/config` command)
 
 ---
 
