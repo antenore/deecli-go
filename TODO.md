@@ -13,7 +13,7 @@
   - [x] **Documentation**: Complete TESTING.md guide for developers
 - [x] **Visual Thinking Indicator**: COMPLETED - Added animated spinner with multiple styles (Braille dots, line, bounce, circle) that displays during AI processing
 - [ ] **Assistant Identity**: Ensure the assistant is consistently named "DeeCLI" across the UI, commands, and prompts.
-- [ ] **File Change Detection**: Implement auto-reload for files modified externally (listed but not yet implemented).
+- [x] **File Change Detection**: FIXED - Auto-reload now works correctly with all editors (handles RENAME events from editor saves)
 - [ ] **Enhanced Config Validation**: Add validation for model whitelists and key bindings with clear, helpful error messages.
 
 ### P1: High-Impact User Experience
@@ -88,12 +88,12 @@
 ## ✅ Recently Completed
 
 *Keep this section to celebrate progress and provide context.* (Keep at max 6 entries)
+- **Fixed File Auto-reload** - Now handles RENAME events from editors, watches files correctly
 - **Visual Thinking Indicator** - Animated spinner with multiple styles for AI processing feedback
 - **Enhanced Testing Infrastructure** - Professional Makefile, coverage reports, CI/CD pipeline
 - **Fixed `/edit` Context Awareness Bug** - Conversation context detection with interactive fallback
 - **Added AI Commands Unit Tests** - Comprehensive test coverage for context detection
 - **Arrow Key History Navigation**
-- **Enhanced `/edit` Command** with smart file detection
 
 ---
 

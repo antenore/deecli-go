@@ -14,14 +14,22 @@
 package files
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"sync"
+	"time"
 )
 
 type FileContext struct {
-	Files      []LoadedFile
-	Loader     *FileLoader
-	MaxContext int
+	Files             []LoadedFile
+	Loader            *FileLoader
+	MaxContext        int
+	watcher           *FileWatcher
+	autoReloadEnabled bool
+	reloadMutex       sync.Mutex
+	lastManualReload  time.Time // Track manual reloads
+	reloadCallback    func([]ReloadResult) // Callback for auto-reload notifications
 }
 
 func NewFileContext() *FileContext {
@@ -50,6 +58,15 @@ func (fc *FileContext) LoadFile(path string) error {
 	}
 
 	fc.Files = append(fc.Files, file)
+
+	// Add to watcher if auto-reload is enabled
+	if fc.autoReloadEnabled && fc.watcher != nil {
+		if err := fc.watcher.Watch(file.Path); err != nil {
+			// Log but don't fail
+			fmt.Printf("Warning: Could not watch %s: %v\n", file.Path, err)
+		}
+	}
+
 	return nil
 }
 
@@ -75,33 +92,57 @@ func (fc *FileContext) LoadFiles(patterns []string) error {
 			}
 			fc.Files = append(fc.Files, file)
 		}
+
+		// Add to watcher if auto-reload is enabled
+		if fc.autoReloadEnabled && fc.watcher != nil {
+			if err := fc.watcher.Watch(file.Path); err != nil {
+				// Log but don't fail
+				fmt.Printf("Warning: Could not watch %s: %v\n", file.Path, err)
+			}
+		}
 	}
 
 	return nil
 }
 
 func (fc *FileContext) Clear() {
+	// Unwatch all files if watcher is active
+	if fc.watcher != nil && fc.autoReloadEnabled {
+		fc.watcher.UnwatchAll()
+	}
 	fc.Files = []LoadedFile{}
 }
 
 func (fc *FileContext) RemoveFile(path string) bool {
 	absPath := path
+	removedPath := ""
+
 	if !strings.HasPrefix(path, "/") {
 		for i, f := range fc.Files {
 			if f.RelPath == path || strings.HasSuffix(f.Path, path) {
+				removedPath = f.Path
 				fc.Files = append(fc.Files[:i], fc.Files[i+1:]...)
-				return true
+				break
+			}
+		}
+	} else {
+		for i, f := range fc.Files {
+			if f.Path == absPath {
+				removedPath = f.Path
+				fc.Files = append(fc.Files[:i], fc.Files[i+1:]...)
+				break
 			}
 		}
 	}
 
-	for i, f := range fc.Files {
-		if f.Path == absPath {
-			fc.Files = append(fc.Files[:i], fc.Files[i+1:]...)
-			return true
+	// Unwatch the removed file if watcher is active
+	if removedPath != "" {
+		if fc.watcher != nil && fc.autoReloadEnabled {
+			fc.watcher.Unwatch(removedPath)
 		}
+		return true
 	}
-	
+
 	return false
 }
 
@@ -153,6 +194,21 @@ func (fc *FileContext) GetInfo() string {
 // ReloadFiles reloads files from disk, updating cached content
 // If no patterns provided, reloads all currently loaded files
 func (fc *FileContext) ReloadFiles(patterns []string) ([]ReloadResult, error) {
+	fc.reloadMutex.Lock()
+	defer fc.reloadMutex.Unlock()
+
+	// Mark this as a manual reload
+	fc.lastManualReload = time.Now()
+
+	// If watcher exists, mark files to skip auto-reload for 500ms
+	if fc.watcher != nil {
+		var allPaths []string
+		for _, file := range fc.Files {
+			allPaths = append(allPaths, file.Path)
+		}
+		fc.watcher.MarkReloadCompleted(allPaths)
+	}
+
 	var results []ReloadResult
 	var filesToReload []string
 	
@@ -243,4 +299,121 @@ type ReloadResult struct {
 	Language string
 	Status   string // "changed", "unchanged", "error"
 	Error    string
+}
+
+// SetWatcher sets the file watcher for auto-reload functionality
+func (fc *FileContext) SetWatcher(w *FileWatcher) {
+	fc.watcher = w
+}
+
+// EnableAutoReload enables automatic file reloading on changes
+func (fc *FileContext) EnableAutoReload(ctx context.Context, notificationCallback func([]ReloadResult)) error {
+	if fc.watcher == nil || !fc.watcher.IsSupported() {
+		return fmt.Errorf("file watching not supported on this platform")
+	}
+
+	fc.autoReloadEnabled = true
+	fc.reloadCallback = notificationCallback
+
+	// Start watcher with reload callback
+	fc.watcher.Start(ctx, func(paths []string) error {
+		// Perform the reload
+		results, err := fc.autoReloadFiles(paths)
+		if err != nil {
+			return err
+		}
+
+		// Notify about reload if callback is set
+		if fc.reloadCallback != nil && len(results) > 0 {
+			fc.reloadCallback(results)
+		}
+
+		return nil
+	})
+
+	// Watch all currently loaded files
+	for _, file := range fc.Files {
+		if err := fc.watcher.Watch(file.Path); err != nil {
+			// Log but don't fail
+			fmt.Printf("Warning: Could not watch %s: %v\n", file.Path, err)
+		}
+	}
+
+	return nil
+}
+
+// DisableAutoReload disables automatic file reloading
+func (fc *FileContext) DisableAutoReload() {
+	fc.autoReloadEnabled = false
+	if fc.watcher != nil {
+		fc.watcher.UnwatchAll()
+	}
+}
+
+// autoReloadFiles performs automatic reload without duplicate prevention interference
+func (fc *FileContext) autoReloadFiles(paths []string) ([]ReloadResult, error) {
+	fc.reloadMutex.Lock()
+	defer fc.reloadMutex.Unlock()
+
+	var results []ReloadResult
+
+	for _, path := range paths {
+		var oldFile *LoadedFile
+		var oldIndex int = -1
+
+		// Find existing file
+		for i, f := range fc.Files {
+			if f.Path == path {
+				oldFile = &f
+				oldIndex = i
+				break
+			}
+		}
+
+		if oldFile == nil {
+			continue // File not currently loaded
+		}
+
+		// Load fresh content
+		newFile, err := fc.Loader.LoadFile(path)
+		if err != nil {
+			results = append(results, ReloadResult{
+				Path: oldFile.RelPath,
+				Error: err.Error(),
+				Status: "error",
+			})
+			continue
+		}
+
+		// Update in context
+		fc.Files[oldIndex] = newFile
+
+		// Track result
+		status := "unchanged"
+		if oldFile.Size != newFile.Size {
+			status = "changed"
+		} else if oldFile.Content != newFile.Content {
+			status = "changed"
+		}
+
+		results = append(results, ReloadResult{
+			Path: newFile.RelPath,
+			OldSize: oldFile.Size,
+			NewSize: newFile.Size,
+			Language: newFile.Language,
+			Status: status,
+		})
+	}
+
+	return results, nil
+}
+
+// IsAutoReloadSupported returns true if auto-reload is supported on this platform
+func (fc *FileContext) IsAutoReloadSupported() bool {
+	return fc.watcher != nil && fc.watcher.IsSupported()
+}
+
+// IsAutoReloadEnabled returns true if auto-reload is currently enabled
+func (fc *FileContext) IsAutoReloadEnabled() bool {
+	return fc.autoReloadEnabled && fc.IsAutoReloadSupported()
 }
