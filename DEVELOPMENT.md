@@ -156,10 +156,32 @@ Files are managed with smart change detection:
 - **Documentation**: Comprehensive godoc comments
 
 ### Testing Strategy
-1. **Unit tests**: For isolated components
+
+DeeCLI implements comprehensive testing infrastructure with multiple test types:
+
+**Test Organization:**
+- `test/unit/` - Isolated component tests
+- `test/integration/` - Module interaction tests
+- `test/testdata/` - Test fixtures and sample data
+- `test/utils/` - Testing utilities and helpers
+
+**Test Commands:**
+```bash
+make test               # All tests
+make test-unit          # Unit tests only
+make test-integration   # Integration tests only
+make test-coverage      # Tests with HTML coverage report
+make test-race          # Race condition detection
+make test-bench         # Benchmark tests
+make test-verbose       # Detailed test output
+```
+
+**Testing Requirements:**
+1. **Unit tests**: For isolated components (using testify framework)
 2. **Integration tests**: For module interactions
 3. **Terminal testing**: Always test in real terminal environments
 4. **SSH testing**: Verify functionality over remote connections
+5. **Coverage tracking**: Maintain or improve test coverage with each change
 
 ### Adding New Features
 1. **Research existing patterns** before implementation
@@ -193,10 +215,23 @@ make build-all  # Builds for all supported platforms
 
 ### Testing Commands
 ```bash
+# Use Makefile for standardized testing (recommended)
+make test               # All tests
+make test-coverage      # Tests with HTML coverage report
+make test-unit          # Unit tests only
+make test-race          # Race condition detection
+make test-bench         # Benchmark tests
+
+# Direct Go commands (for specific needs)
 go test ./...           # Run all tests
 go test -v ./internal/chat  # Verbose testing for specific module
 go test -race ./...     # Race condition detection
 ```
+
+**Coverage Reporting:**
+- HTML reports generated in `coverage/` directory
+- Current coverage: 88.4% tracker, 60.7% input, 24.6% API
+- CI/CD pipeline with automated coverage uploads to Codecov
 
 ## Troubleshooting Common Issues
 

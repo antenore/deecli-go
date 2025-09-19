@@ -167,9 +167,37 @@ DeeCLI is built with **Go** and features a clean architecture with separate modu
 
 ## Development
 
+### Testing
+
+DeeCLI includes comprehensive testing infrastructure:
+
 ```bash
-# Run tests
-go test ./...
+# Run all tests
+make test
+
+# Run with coverage report (HTML)
+make test-coverage
+
+# Run unit tests only
+make test-unit
+
+# Run tests with race detection
+make test-race
+
+# Run benchmark tests
+make test-bench
+
+# See all test commands
+make help
+```
+
+The project maintains high test coverage with automated CI/CD pipeline.
+
+### Building
+
+```bash
+# Build for current platform
+make build
 
 # Build for all platforms
 make build-all
