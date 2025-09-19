@@ -19,6 +19,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/antenore/deecli/internal/config"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -109,14 +110,14 @@ func (cc *ConfigCommands) handleConfigCommand(args []string) {
 	case "set":
 		if len(args) < 3 {
 			cc.deps.MessageLogger("system", "Usage: /config set <key> <value> [--global|--project]")
-			cc.deps.MessageLogger("system", "Keys: api-key, model, temperature, max-tokens")
+			cc.deps.MessageLogger("system", "Keys: api-key, model, temperature, max-tokens, auto-reload-files, auto-reload-debounce, show-reload-notices")
 			return
 		}
 		cc.handleConfigSet(args[1], args[2], args[3:])
 	case "get":
 		if len(args) < 2 {
 			cc.deps.MessageLogger("system", "Usage: /config get <key>")
-			cc.deps.MessageLogger("system", "Keys: api-key, model, temperature, max-tokens")
+			cc.deps.MessageLogger("system", "Keys: api-key, model, temperature, max-tokens, auto-reload-files, auto-reload-debounce, show-reload-notices")
 			return
 		}
 		cc.handleConfigGet(args[1])
@@ -190,6 +191,11 @@ func (cc *ConfigCommands) showConfig() {
 		cc.deps.MessageLogger("system", fmt.Sprintf("  Model: %s", cfg.Model))
 		cc.deps.MessageLogger("system", fmt.Sprintf("  Temperature: %.2f", cfg.Temperature))
 		cc.deps.MessageLogger("system", fmt.Sprintf("  Max Tokens: %d", cfg.MaxTokens))
+		cc.deps.MessageLogger("system", "")
+		cc.deps.MessageLogger("system", "File Auto-Reload:")
+		cc.deps.MessageLogger("system", fmt.Sprintf("  Enabled: %t", cfg.AutoReloadFiles))
+		cc.deps.MessageLogger("system", fmt.Sprintf("  Debounce: %dms", cfg.AutoReloadDebounce))
+		cc.deps.MessageLogger("system", fmt.Sprintf("  Notifications: %t", cfg.ShowReloadNotices))
 	} else {
 		cc.deps.MessageLogger("system", "⚠️ Config manager not available")
 	}
@@ -363,6 +369,12 @@ func (cc *ConfigCommands) handleConfigSet(key, value string, flags []string) {
 	var displayValue string
 	switch key {
 	case "api-key":
+		// Validate API key before setting
+		if err := config.ValidateAPIKey(value); err != nil {
+			cc.deps.MessageLogger("system", fmt.Sprintf("❌ %v", err))
+			cc.deps.MessageLogger("system", "   DeepSeek API keys should start with 'sk-'")
+			return
+		}
 		newCfg.APIKey = value
 		if len(value) > 8 {
 			displayValue = value[:4] + "..." + value[len(value)-4:]
@@ -372,6 +384,11 @@ func (cc *ConfigCommands) handleConfigSet(key, value string, flags []string) {
 		cc.deps.MessageLogger("system", fmt.Sprintf("✅ API key updated: %s", displayValue))
 
 	case "model":
+		// Validate model before setting
+		if err := config.ValidateModel(value); err != nil {
+			cc.deps.MessageLogger("system", fmt.Sprintf("❌ %v", err))
+			return
+		}
 		newCfg.Model = value
 		cc.deps.MessageLogger("system", fmt.Sprintf("✅ Model set to: %s", value))
 
@@ -379,10 +396,13 @@ func (cc *ConfigCommands) handleConfigSet(key, value string, flags []string) {
 		var temp float64
 		if _, err := fmt.Sscanf(value, "%f", &temp); err != nil {
 			cc.deps.MessageLogger("system", fmt.Sprintf("❌ Invalid temperature value: %s", value))
+			cc.deps.MessageLogger("system", "   Temperature should be a decimal number (e.g., 0.7)")
 			return
 		}
-		if temp < 0.0 || temp > 2.0 {
-			cc.deps.MessageLogger("system", "❌ Temperature must be between 0.0 and 2.0")
+		if err := config.ValidateTemperature(temp); err != nil {
+			cc.deps.MessageLogger("system", fmt.Sprintf("❌ %v", err))
+			cc.deps.MessageLogger("system", "   Lower values (0.0-0.5) = more focused, deterministic")
+			cc.deps.MessageLogger("system", "   Higher values (0.5-2.0) = more creative, varied")
 			return
 		}
 		newCfg.Temperature = temp
@@ -392,18 +412,61 @@ func (cc *ConfigCommands) handleConfigSet(key, value string, flags []string) {
 		var tokens int
 		if _, err := fmt.Sscanf(value, "%d", &tokens); err != nil {
 			cc.deps.MessageLogger("system", fmt.Sprintf("❌ Invalid max-tokens value: %s", value))
+			cc.deps.MessageLogger("system", "   Max tokens should be a positive integer")
 			return
 		}
-		if tokens <= 0 {
-			cc.deps.MessageLogger("system", "❌ Max tokens must be positive")
+		if err := config.ValidateMaxTokens(tokens); err != nil {
+			cc.deps.MessageLogger("system", fmt.Sprintf("❌ %v", err))
+			cc.deps.MessageLogger("system", "   Recommended range: 1024-8192 for most tasks")
 			return
 		}
 		newCfg.MaxTokens = tokens
 		cc.deps.MessageLogger("system", fmt.Sprintf("✅ Max tokens set to: %d", tokens))
 
+	case "auto-reload-files":
+		var enabled bool
+		if value == "true" || value == "1" || value == "yes" || value == "on" {
+			enabled = true
+		} else if value == "false" || value == "0" || value == "no" || value == "off" {
+			enabled = false
+		} else {
+			cc.deps.MessageLogger("system", fmt.Sprintf("❌ Invalid auto-reload-files value: %s (use true/false)", value))
+			return
+		}
+		newCfg.AutoReloadFiles = enabled
+		cc.deps.MessageLogger("system", fmt.Sprintf("✅ Auto-reload files set to: %t", enabled))
+
+	case "auto-reload-debounce":
+		var debounce int
+		if _, err := fmt.Sscanf(value, "%d", &debounce); err != nil {
+			cc.deps.MessageLogger("system", fmt.Sprintf("❌ Invalid auto-reload-debounce value: %s", value))
+			cc.deps.MessageLogger("system", "   Debounce should be a number in milliseconds")
+			return
+		}
+		if err := config.ValidateAutoReloadDebounce(debounce); err != nil {
+			cc.deps.MessageLogger("system", fmt.Sprintf("❌ %v", err))
+			cc.deps.MessageLogger("system", "   Recommended: 100-500ms for most editors")
+			return
+		}
+		newCfg.AutoReloadDebounce = debounce
+		cc.deps.MessageLogger("system", fmt.Sprintf("✅ Auto-reload debounce set to: %dms", debounce))
+
+	case "show-reload-notices":
+		var show bool
+		if value == "true" || value == "1" || value == "yes" || value == "on" {
+			show = true
+		} else if value == "false" || value == "0" || value == "no" || value == "off" {
+			show = false
+		} else {
+			cc.deps.MessageLogger("system", fmt.Sprintf("❌ Invalid show-reload-notices value: %s (use true/false)", value))
+			return
+		}
+		newCfg.ShowReloadNotices = show
+		cc.deps.MessageLogger("system", fmt.Sprintf("✅ Show reload notices set to: %t", show))
+
 	default:
 		cc.deps.MessageLogger("system", fmt.Sprintf("❌ Unknown config key: %s", key))
-		cc.deps.MessageLogger("system", "Valid keys: api-key, model, temperature, max-tokens")
+		cc.deps.MessageLogger("system", "Valid keys: api-key, model, temperature, max-tokens, auto-reload-files, auto-reload-debounce, show-reload-notices")
 		return
 	}
 
@@ -469,9 +532,18 @@ func (cc *ConfigCommands) handleConfigGet(key string) {
 	case "max-tokens":
 		cc.deps.MessageLogger("system", fmt.Sprintf("Max Tokens: %d", cfg.MaxTokens))
 
+	case "auto-reload-files":
+		cc.deps.MessageLogger("system", fmt.Sprintf("Auto-reload Files: %t", cfg.AutoReloadFiles))
+
+	case "auto-reload-debounce":
+		cc.deps.MessageLogger("system", fmt.Sprintf("Auto-reload Debounce: %dms", cfg.AutoReloadDebounce))
+
+	case "show-reload-notices":
+		cc.deps.MessageLogger("system", fmt.Sprintf("Show Reload Notices: %t", cfg.ShowReloadNotices))
+
 	default:
 		cc.deps.MessageLogger("system", fmt.Sprintf("❌ Unknown config key: %s", key))
-		cc.deps.MessageLogger("system", "Valid keys: api-key, model, temperature, max-tokens")
+		cc.deps.MessageLogger("system", "Valid keys: api-key, model, temperature, max-tokens, auto-reload-files, auto-reload-debounce, show-reload-notices")
 	}
 }
 

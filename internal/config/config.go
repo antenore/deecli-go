@@ -17,20 +17,25 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
-	APIKey      string             `yaml:"api_key"`
-	Model       string             `yaml:"model"`
-	Temperature float64            `yaml:"temperature"`
-	MaxTokens   int                `yaml:"max_tokens"`
-	NewlineKey  string             `yaml:"newline_key,omitempty"`
-	HistoryBackKey string          `yaml:"history_back_key,omitempty"`
-	HistoryForwardKey string       `yaml:"history_forward_key,omitempty"`
-	Profiles    map[string]Profile `yaml:"profiles,omitempty"`
-	ActiveProfile string           `yaml:"active_profile,omitempty"`
+	APIKey           string             `yaml:"api_key"`
+	Model            string             `yaml:"model"`
+	Temperature      float64            `yaml:"temperature"`
+	MaxTokens        int                `yaml:"max_tokens"`
+	NewlineKey       string             `yaml:"newline_key,omitempty"`
+	HistoryBackKey   string             `yaml:"history_back_key,omitempty"`
+	HistoryForwardKey string            `yaml:"history_forward_key,omitempty"`
+	Profiles         map[string]Profile `yaml:"profiles,omitempty"`
+	ActiveProfile    string             `yaml:"active_profile,omitempty"`
+	AutoReloadFiles  bool               `yaml:"auto_reload_files,omitempty"`     // Enable file auto-reload
+	AutoReloadDebounce int              `yaml:"auto_reload_debounce,omitempty"`  // Debounce time in ms
+	ShowReloadNotices  bool             `yaml:"show_reload_notices,omitempty"`   // Show reload notifications
 }
 
 type Profile struct {
@@ -42,10 +47,13 @@ type Profile struct {
 
 var (
 	defaultConfig = Config{
-		Model:       "deepseek-chat",
-		Temperature: 0.1,
-		MaxTokens:   2048,
-		Profiles:    make(map[string]Profile),
+		Model:            "deepseek-chat",
+		Temperature:      0.1,
+		MaxTokens:        2048,
+		Profiles:         make(map[string]Profile),
+		AutoReloadFiles:  true,
+		AutoReloadDebounce: 100,
+		ShowReloadNotices: true,
 	}
 )
 
@@ -77,9 +85,23 @@ func (m *Manager) Load() error {
 		return fmt.Errorf("failed to load global config: %w", err)
 	}
 
+	// Validate global config
+	if m.globalConfig != nil && !isEmptyConfig(m.globalConfig) {
+		if err := m.globalConfig.Validate(); err != nil {
+			return fmt.Errorf("invalid global config: %w", err)
+		}
+	}
+
 	// Load project config
 	if err := m.loadConfigFile(m.projectPath, m.projectConfig); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to load project config: %w", err)
+	}
+
+	// Validate project config
+	if m.projectConfig != nil && !isEmptyConfig(m.projectConfig) {
+		if err := m.projectConfig.Validate(); err != nil {
+			return fmt.Errorf("invalid project config: %w", err)
+		}
 	}
 
 	// Merge configurations
@@ -88,7 +110,17 @@ func (m *Manager) Load() error {
 	// Apply environment variables (highest priority)
 	m.applyEnvironmentOverrides()
 
+	// Validate final merged config
+	if err := m.mergedConfig.Validate(); err != nil {
+		return fmt.Errorf("invalid configuration: %w", err)
+	}
+
 	return nil
+}
+
+// isEmptyConfig checks if a config struct has all zero values
+func isEmptyConfig(c *Config) bool {
+	return c.APIKey == "" && c.Model == "" && c.Temperature == 0 && c.MaxTokens == 0
 }
 
 func (m *Manager) loadConfigFile(path string, cfg *Config) error {
@@ -131,6 +163,12 @@ func (m *Manager) mergeConfigs() *Config {
 		if m.globalConfig.ActiveProfile != "" {
 			merged.ActiveProfile = m.globalConfig.ActiveProfile
 		}
+		// Auto-reload settings (use explicit checks for booleans)
+		merged.AutoReloadFiles = m.globalConfig.AutoReloadFiles
+		if m.globalConfig.AutoReloadDebounce != 0 {
+			merged.AutoReloadDebounce = m.globalConfig.AutoReloadDebounce
+		}
+		merged.ShowReloadNotices = m.globalConfig.ShowReloadNotices
 	}
 
 	// Apply project config (higher priority)
@@ -150,6 +188,12 @@ func (m *Manager) mergeConfigs() *Config {
 		if m.projectConfig.ActiveProfile != "" {
 			merged.ActiveProfile = m.projectConfig.ActiveProfile
 		}
+		// Auto-reload settings from project config (higher priority)
+		merged.AutoReloadFiles = m.projectConfig.AutoReloadFiles
+		if m.projectConfig.AutoReloadDebounce != 0 {
+			merged.AutoReloadDebounce = m.projectConfig.AutoReloadDebounce
+		}
+		merged.ShowReloadNotices = m.projectConfig.ShowReloadNotices
 		// Merge profiles
 		for name, profile := range m.projectConfig.Profiles {
 			merged.Profiles[name] = profile
@@ -254,11 +298,14 @@ func (m *Manager) SaveProject(cfg *Config) error {
 
 func (m *Manager) InitGlobalConfig(apiKey string) error {
 	cfg := &Config{
-		APIKey:      apiKey,
-		Model:       defaultConfig.Model,
-		Temperature: defaultConfig.Temperature,
-		MaxTokens:   defaultConfig.MaxTokens,
-		Profiles:    make(map[string]Profile),
+		APIKey:           apiKey,
+		Model:            defaultConfig.Model,
+		Temperature:      defaultConfig.Temperature,
+		MaxTokens:        defaultConfig.MaxTokens,
+		Profiles:         make(map[string]Profile),
+		AutoReloadFiles:  defaultConfig.AutoReloadFiles,
+		AutoReloadDebounce: defaultConfig.AutoReloadDebounce,
+		ShowReloadNotices: defaultConfig.ShowReloadNotices,
 	}
 
 	return m.SaveGlobal(cfg)
@@ -289,6 +336,27 @@ func (m *Manager) SetNewlineKey(key string) error {
 	cfg := m.Get()
 	cfg.NewlineKey = key
 	return m.SaveGlobal(cfg)
+}
+
+// GetAutoReloadFiles returns whether file auto-reload is enabled
+func (m *Manager) GetAutoReloadFiles() bool {
+	cfg := m.Get()
+	return cfg.AutoReloadFiles
+}
+
+// GetAutoReloadDebounce returns the debounce time for auto-reload in milliseconds
+func (m *Manager) GetAutoReloadDebounce() int {
+	cfg := m.Get()
+	if cfg.AutoReloadDebounce == 0 {
+		return 100 // Default to 100ms
+	}
+	return cfg.AutoReloadDebounce
+}
+
+// GetShowReloadNotices returns whether reload notifications should be shown
+func (m *Manager) GetShowReloadNotices() bool {
+	cfg := m.Get()
+	return cfg.ShowReloadNotices
 }
 
 // GetHistoryBackKey returns the configured history back key with fallback defaults
@@ -339,4 +407,182 @@ func (m *Manager) SetKeyBinding(keyType, key string) error {
 		return fmt.Errorf("unknown key type: %s", keyType)
 	}
 	return m.SaveGlobal(cfg)
+}
+
+// Validation functions
+
+var (
+	// ValidModels contains the list of supported DeepSeek models
+	ValidModels = []string{"deepseek-chat", "deepseek-reasoner"}
+
+	// KeyBindingPattern matches valid key binding formats like ctrl+j, alt+enter, shift+tab
+	KeyBindingPattern = regexp.MustCompile(`^(ctrl|alt|shift|cmd|meta)(\+(ctrl|alt|shift|cmd|meta))*\+([a-z0-9]|enter|tab|space|escape|esc|up|down|left|right|home|end|pageup|pagedown|f[1-9]|f1[0-2])$|^(enter|tab|space|escape|esc|up|down|left|right|home|end|pageup|pagedown|f[1-9]|f1[0-2])$`)
+)
+
+// ValidateModel checks if the model name is valid
+func ValidateModel(model string) error {
+	if model == "" {
+		return nil // Empty is ok, will use default
+	}
+
+	for _, valid := range ValidModels {
+		if model == valid {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("invalid model '%s'. Valid models are: %s",
+		model, strings.Join(ValidModels, ", "))
+}
+
+// ValidateAPIKey performs basic validation on the API key
+func ValidateAPIKey(apiKey string) error {
+	if apiKey == "" {
+		return nil // Empty is ok, can be set later or via env
+	}
+
+	if !strings.HasPrefix(apiKey, "sk-") {
+		return fmt.Errorf("API key should start with 'sk-'. Got: %s...",
+			apiKey[:min(4, len(apiKey))])
+	}
+
+	if len(apiKey) < 20 {
+		return fmt.Errorf("API key appears too short")
+	}
+
+	return nil
+}
+
+// ValidateKeyBinding checks if a key binding string is valid
+func ValidateKeyBinding(key string) error {
+	if key == "" {
+		return nil // Empty is ok, will use default
+	}
+
+	key = strings.ToLower(key)
+	if !KeyBindingPattern.MatchString(key) {
+		return fmt.Errorf("invalid key binding '%s'. Format should be like: ctrl+j, alt+enter, shift+tab, or special keys like: enter, tab, escape", key)
+	}
+
+	return nil
+}
+
+// ValidateTemperature checks if temperature is in valid range
+func ValidateTemperature(temp float64) error {
+	if temp < 0.0 || temp > 2.0 {
+		return fmt.Errorf("temperature must be between 0.0 and 2.0, got: %.2f", temp)
+	}
+	return nil
+}
+
+// ValidateMaxTokens checks if max tokens is valid
+func ValidateMaxTokens(tokens int) error {
+	if tokens <= 0 {
+		return fmt.Errorf("max_tokens must be positive, got: %d", tokens)
+	}
+	if tokens > 32768 {
+		return fmt.Errorf("max_tokens exceeds maximum (32768), got: %d", tokens)
+	}
+	return nil
+}
+
+// ValidateAutoReloadDebounce checks if debounce time is valid
+func ValidateAutoReloadDebounce(debounce int) error {
+	if debounce < 0 {
+		return fmt.Errorf("auto_reload_debounce cannot be negative, got: %d", debounce)
+	}
+	if debounce > 5000 {
+		return fmt.Errorf("auto_reload_debounce too high (max 5000ms), got: %d", debounce)
+	}
+	return nil
+}
+
+// Validate performs validation on the entire config
+func (c *Config) Validate() error {
+	// Validate model
+	if err := ValidateModel(c.Model); err != nil {
+		return err
+	}
+
+	// Validate API key
+	if err := ValidateAPIKey(c.APIKey); err != nil {
+		return err
+	}
+
+	// Validate temperature
+	if err := ValidateTemperature(c.Temperature); err != nil {
+		return err
+	}
+
+	// Validate max tokens
+	if err := ValidateMaxTokens(c.MaxTokens); err != nil {
+		return err
+	}
+
+	// Validate key bindings
+	if err := ValidateKeyBinding(c.NewlineKey); err != nil {
+		return fmt.Errorf("newline_key: %w", err)
+	}
+
+	if err := ValidateKeyBinding(c.HistoryBackKey); err != nil {
+		return fmt.Errorf("history_back_key: %w", err)
+	}
+
+	if err := ValidateKeyBinding(c.HistoryForwardKey); err != nil {
+		return fmt.Errorf("history_forward_key: %w", err)
+	}
+
+	// Check for key binding conflicts
+	keys := make(map[string]string)
+	if c.NewlineKey != "" {
+		keys[strings.ToLower(c.NewlineKey)] = "newline"
+	}
+	if c.HistoryBackKey != "" {
+		if existing, ok := keys[strings.ToLower(c.HistoryBackKey)]; ok {
+			return fmt.Errorf("key binding conflict: %s is used for both %s and history_back",
+				c.HistoryBackKey, existing)
+		}
+		keys[strings.ToLower(c.HistoryBackKey)] = "history_back"
+	}
+	if c.HistoryForwardKey != "" {
+		if existing, ok := keys[strings.ToLower(c.HistoryForwardKey)]; ok {
+			return fmt.Errorf("key binding conflict: %s is used for both %s and history_forward",
+				c.HistoryForwardKey, existing)
+		}
+	}
+
+	// Validate auto-reload debounce
+	if err := ValidateAutoReloadDebounce(c.AutoReloadDebounce); err != nil {
+		return err
+	}
+
+	// Validate profiles
+	for name, profile := range c.Profiles {
+		if err := ValidateModel(profile.Model); err != nil {
+			return fmt.Errorf("profile '%s': %w", name, err)
+		}
+		if err := ValidateAPIKey(profile.APIKey); err != nil {
+			return fmt.Errorf("profile '%s': %w", name, err)
+		}
+		if profile.Temperature != 0 {
+			if err := ValidateTemperature(profile.Temperature); err != nil {
+				return fmt.Errorf("profile '%s': %w", name, err)
+			}
+		}
+		if profile.MaxTokens != 0 {
+			if err := ValidateMaxTokens(profile.MaxTokens); err != nil {
+				return fmt.Errorf("profile '%s': %w", name, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// min returns the minimum of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
