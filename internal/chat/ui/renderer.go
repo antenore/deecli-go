@@ -200,9 +200,26 @@ Press F1 to close this help`, newlineKey, historyBackKey, historyForwardKey,
 
 // FormatLoadingMessage creates a loading message with cancel hint
 func (r *Renderer) FormatLoadingMessage(loadingMsg string) string {
-	// Add loading indicator
+	// Add loading indicator with static fallback
 	loadingStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true)
 	loadingText := loadingStyle.Render("🔄 " + loadingMsg)
+
+	// Add hint about cancellation
+	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
+	hintText := hintStyle.Render("Press Esc to cancel")
+
+	return loadingText + "\n" + hintText
+}
+
+// FormatLoadingMessageWithSpinner creates a loading message with animated spinner
+func (r *Renderer) FormatLoadingMessageWithSpinner(loadingMsg string, spinnerFrame string) string {
+	// Add loading indicator with animated spinner
+	loadingStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true)
+	spinnerText := spinnerFrame
+	if spinnerText == "" {
+		spinnerText = "🔄" // Fallback if spinner is not active
+	}
+	loadingText := loadingStyle.Render(spinnerText + " " + loadingMsg)
 
 	// Add hint about cancellation
 	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("244"))

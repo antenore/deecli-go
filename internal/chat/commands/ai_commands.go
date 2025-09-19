@@ -46,9 +46,9 @@ func (ai *AICommands) Analyze(args []string) tea.Cmd {
 		return nil
 	}
 
-	ai.deps.SetLoading(true, "Analyzing files...")
+	loadingCmd := ai.deps.SetLoading(true, "Analyzing files...")
 	ai.deps.RefreshUI()
-	return ai.deps.AnalyzeFiles()
+	return tea.Batch(loadingCmd, ai.deps.AnalyzeFiles())
 }
 
 // Explain handles the /explain command
@@ -63,9 +63,9 @@ func (ai *AICommands) Explain(args []string) tea.Cmd {
 		return nil
 	}
 
-	ai.deps.SetLoading(true, "Explaining code...")
+	loadingCmd := ai.deps.SetLoading(true, "Explaining code...")
 	ai.deps.RefreshUI()
-	return ai.deps.ExplainFiles()
+	return tea.Batch(loadingCmd, ai.deps.ExplainFiles())
 }
 
 // Improve handles the /improve command
@@ -80,9 +80,9 @@ func (ai *AICommands) Improve(args []string) tea.Cmd {
 		return nil
 	}
 
-	ai.deps.SetLoading(true, "Generating improvement suggestions...")
+	loadingCmd := ai.deps.SetLoading(true, "Generating improvement suggestions...")
 	ai.deps.RefreshUI()
-	return ai.deps.ImproveFiles()
+	return tea.Batch(loadingCmd, ai.deps.ImproveFiles())
 }
 
 // getFileFromRecentContext analyzes recent user messages to find the most recently mentioned loaded file

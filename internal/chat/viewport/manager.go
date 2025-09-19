@@ -36,6 +36,7 @@ type Manager struct {
 	configManager    *config.Manager
 	sessionManager   *sessions.Manager
 	currentSession   *sessions.Session
+	spinner          *ui.Spinner
 	// Use pointers to the actual model data instead of copies
 	messages         *[]string
 	apiMessages      *[]api.Message
@@ -52,6 +53,7 @@ type Dependencies struct {
 	ConfigManager    *config.Manager
 	SessionManager   *sessions.Manager
 	CurrentSession   *sessions.Session
+	Spinner          *ui.Spinner
 	Messages         *[]string
 	APIMessages      *[]api.Message
 	FilesWidgetVisible *bool
@@ -68,6 +70,7 @@ func NewManager(deps Dependencies) *Manager {
 		configManager:    deps.ConfigManager,
 		sessionManager:   deps.SessionManager,
 		currentSession:   deps.CurrentSession,
+		spinner:          deps.Spinner,
 		// Store pointers to actual model data
 		messages:         deps.Messages,
 		apiMessages:      deps.APIMessages,
@@ -123,20 +126,34 @@ func (m *Manager) AddMessage(role, content string, aiOperations interface{}) {
 func (m *Manager) RefreshViewport() {
 	// Rebuild viewport from message history
 	if *m.isLoading {
-		// Add loading indicator temporarily
-		loadingStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true)
-		loadingMsg := loadingStyle.Render("🔄 " + *m.loadingMsg)
+		// Use renderer with animated spinner
+		var loadingDisplay string
+		if m.renderer != nil && m.spinner != nil {
+			loadingDisplay = m.renderer.FormatLoadingMessageWithSpinner(*m.loadingMsg, m.spinner.Frame())
+		} else {
+			// Fallback if renderer or spinner is not available
+			loadingStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true)
+			spinnerFrame := "🔄"
+			if m.spinner != nil {
+				frame := m.spinner.Frame()
+				if frame != "" {
+					spinnerFrame = frame
+				}
+			}
+			loadingDisplay = loadingStyle.Render(spinnerFrame + " " + *m.loadingMsg)
 
-		// Add hint about cancellation
-		hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
-		hintMsg := hintStyle.Render("Press Esc to cancel")
+			// Add hint about cancellation
+			hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
+			hintText := hintStyle.Render("Press Esc to cancel")
+			loadingDisplay += "\n" + hintText
+		}
 
 		// Show all messages plus loading indicator
 		allContent := strings.Join(*m.messages, "\n\n")
 		if allContent != "" {
-			m.viewport.SetContent(allContent + "\n\n" + loadingMsg + "\n" + hintMsg)
+			m.viewport.SetContent(allContent + "\n\n" + loadingDisplay)
 		} else {
-			m.viewport.SetContent(loadingMsg + "\n" + hintMsg)
+			m.viewport.SetContent(loadingDisplay)
 		}
 		m.viewport.GotoBottom()
 	} else {

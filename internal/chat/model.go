@@ -59,6 +59,7 @@ type NewModel struct {
 	sidebar          *ui.Sidebar     // Sidebar for files display
 	aiOperations     *ai.Operations  // AI operations handler
 	viewportManager  *viewportmgr.Manager // Viewport and message manager
+	spinner          *ui.Spinner     // Visual thinking indicator
 	width            int
 	height           int
 	ready            bool
@@ -178,6 +179,7 @@ func newChatModelInternal(configManager *config.Manager, apiKey, model string, t
 		layoutManager:    layoutManager,
 		sidebar:          sidebar,
 		aiOperations:     aiOperations,
+		spinner:          ui.NewDefaultSpinner(), // Initialize visual thinking indicator
 		width:            width,
 		height:           height,
 		focusMode:        "input", // Start with input focused
@@ -284,9 +286,17 @@ func (m *NewModel) showHistoryFromInputManager() {
 	}
 }
 
-func (m *NewModel) setLoading(loading bool, message string) {
+func (m *NewModel) setLoading(loading bool, message string) tea.Cmd {
 	m.isLoading = loading
 	m.loadingMsg = message
+
+	// Control spinner animation
+	if loading {
+		return m.spinner.Start()
+	} else {
+		m.spinner.Stop()
+		return nil
+	}
 }
 
 func (m *NewModel) setCancel(cancel context.CancelFunc) {
@@ -318,6 +328,11 @@ func (m *NewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
 
+	// Handle spinner animation
+	if spinnerCmd := m.spinner.Update(msg); spinnerCmd != nil {
+		cmds = append(cmds, spinnerCmd)
+	}
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -344,6 +359,7 @@ func (m *NewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					ConfigManager:    m.configManager,
 					SessionManager:   m.sessionManager,
 					CurrentSession:   m.currentSession,
+					Spinner:          m.spinner,
 					Messages:         &m.messages,
 					APIMessages:      &m.apiMessages,
 					FilesWidgetVisible: &m.filesWidgetVisible,
@@ -367,8 +383,9 @@ func (m *NewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case cancelApiMsg:
-		m.isLoading = false
-		m.loadingMsg = ""
+		if cmd := m.setLoading(false, ""); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 		m.apiCancel = nil
 		// Close stream reader if active
 		if m.streamReader != nil {
@@ -386,7 +403,9 @@ func (m *NewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Stream has started, save the reader and start reading chunks
 		m.streamReader = msg.Stream
 		m.streamContent = ""
-		m.isLoading = true  // Set loading flag for streaming
+		if cmd := m.setLoading(true, "Thinking..."); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 		// Add initial placeholder assistant message - this will be updated during streaming
 		m.messages = append(m.messages, m.renderer.FormatMessage("assistant", ""))
 		m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
@@ -675,11 +694,13 @@ func (m *NewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							if m.inputManager != nil {
 								m.inputManager.ClearCompletions()
 							}
-							m.isLoading = true
-							m.loadingMsg = "Thinking..."
+							if cmd := m.setLoading(true, "Thinking..."); cmd != nil {
+								cmds = append(cmds, cmd)
+							}
 							m.refreshViewport()
 
-							return m, m.callAPI(contextPrompt, input)
+							cmds = append(cmds, m.callAPI(contextPrompt, input))
+							return m, tea.Batch(cmds...)
 						} else {
 							m.addMessage("system", "Please set DEEPSEEK_API_KEY environment variable")
 							m.textarea.Reset()
@@ -801,20 +822,26 @@ func (m *NewModel) addMessage(role, content string) {
 func (m *NewModel) refreshViewport() {
 	// Rebuild viewport from message history
 	if m.isLoading {
-		// Add loading indicator temporarily
-		loadingStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true)
-		loadingMsg := loadingStyle.Render("🔄 " + m.loadingMsg)
-
-		// Add hint about cancellation
-		hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
-		hintMsg := hintStyle.Render("Press Esc to cancel")
+		// Use renderer with animated spinner
+		var loadingDisplay string
+		if m.renderer != nil {
+			loadingDisplay = m.renderer.FormatLoadingMessageWithSpinner(m.loadingMsg, m.spinner.Frame())
+		} else {
+			// Fallback if renderer is not available
+			loadingStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true)
+			spinnerFrame := m.spinner.Frame()
+			if spinnerFrame == "" {
+				spinnerFrame = "🔄"
+			}
+			loadingDisplay = loadingStyle.Render(spinnerFrame + " " + m.loadingMsg)
+		}
 
 		// Show all messages plus loading indicator
 		allContent := strings.Join(m.messages, "\n\n")
 		if allContent != "" {
-			m.viewport.SetContent(allContent + "\n\n" + loadingMsg + "\n" + hintMsg)
+			m.viewport.SetContent(allContent + "\n\n" + loadingDisplay)
 		} else {
-			m.viewport.SetContent(loadingMsg + "\n" + hintMsg)
+			m.viewport.SetContent(loadingDisplay)
 		}
 		m.viewport.GotoBottom()
 	} else {
@@ -905,8 +932,7 @@ func (m *NewModel) generateEditSuggestions() tea.Cmd {
 
 // handleAPIResponse handles API responses for both old and new message types
 func (m *NewModel) handleAPIResponse(response string, err error) {
-	m.isLoading = false
-	m.loadingMsg = ""
+	m.setLoading(false, "")
 	m.apiCancel = nil
 	if err != nil {
 		// Check if it's an enhanced APIError
@@ -953,8 +979,7 @@ func (m *NewModel) updateStreamingDisplay(content string) {
 
 // handleStreamComplete handles the completion of a stream
 func (m *NewModel) handleStreamComplete(content string, err error) {
-	m.isLoading = false
-	m.loadingMsg = ""
+	m.setLoading(false, "")
 	m.apiCancel = nil
 	m.streamReader = nil
 	m.streamContent = ""

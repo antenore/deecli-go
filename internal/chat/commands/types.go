@@ -44,7 +44,7 @@ type Dependencies struct {
 
 	// State management
 	MessageLogger func(role, content string)
-	SetLoading    func(bool, string)
+	SetLoading    func(bool, string) tea.Cmd
 	SetCancel     func(context.CancelFunc)
 	RefreshUI     func()
 	ShowHistory   func() // Show input history
