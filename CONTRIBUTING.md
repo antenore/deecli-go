@@ -3,9 +3,12 @@
 ## Code Style
 
 - Follow standard Go conventions
-- Run `go fmt` before committing
+- Run `gofmt` or `goimports` before committing
 - Keep functions focused and small
 - Handle errors explicitly
+- Use testify framework for all tests
+- Maintain strict separation of concerns (see DEVELOPMENT.md)
+- Follow established module patterns in `internal/` directory
 
 ## Commit Messages
 
@@ -24,17 +27,50 @@ Fix tab completion for hidden files
 
 ## Pull Requests
 
-1. Fork the repository
-2. Create a feature branch from master
-3. Make your changes
-4. Run tests: `go test ./...`
-5. Submit pull request against master
+**Development Workflow:**
+
+1. **Planning Phase**
+   - Check TODO.md for current priorities
+   - Review DEVELOPMENT.md for architecture patterns
+   - Search codebase for existing implementations
+
+2. **Implementation Phase**
+   - Fork repository and create feature branch from master
+   - Write tests FIRST using testify framework
+   - Follow existing patterns and module structure
+   - Implement both chat commands and CLI versions
+
+3. **Validation Phase**
+   - Run `make test-coverage` to verify coverage improvements
+   - Test in real terminal environments (SSH, different terminals)
+   - Ensure all tests pass: `make test`
+   - Submit pull request against master
+
+**PR Requirements:**
+- Unit tests for all new functionality
+- Integration tests for module interactions
+- Coverage maintained or improved
+- Code follows Go conventions and architecture patterns
 
 ## Testing
 
-- Write tests for new functionality
-- Ensure existing tests pass
-- Test on multiple platforms if possible
+**TESTING IS MANDATORY** - Use the enhanced testing infrastructure:
+
+```bash
+make test               # All tests (required before PR)
+make test-unit          # Unit tests only
+make test-integration   # Integration tests only
+make test-coverage      # Tests with HTML coverage report
+make test-race          # Race condition detection
+make test-bench         # Benchmark tests
+```
+
+**Requirements:**
+- **Unit tests**: REQUIRED for all new features using testify framework
+- **Integration tests**: For module interactions
+- **Coverage**: Maintain or improve coverage (current: 88.4% tracker, 60.7% input, 24.6% API)
+- **Real environment testing**: Test in actual terminals and SSH connections
+- **Test organization**: Use `test/unit/`, `test/integration/`, `test/testdata/` structure
 
 ## Bug Reports
 

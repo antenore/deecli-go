@@ -83,3 +83,7 @@ $RECYCLE.BIN/
 ctags
 .deecli
 
+# Git internal files
+.git/COMMIT_EDITMSG
+COMMIT_EDITMSG
+

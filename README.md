@@ -210,7 +210,7 @@ Alpha - core functionality works, focusing on stability and essential features.
 ## Future development & contributing
 
 ### AST Integration Roadmap
-DeeCLI currently uses text-based analysis for simplicity and performance. Full Abstract Syntax Tree (AST) integration is planned for future versions
+DeeCLI now uses text-based analysis for simplicity and performance. Full Abstract Syntax Tree (AST) integration is planned for future versions
 when the core experience is stable.
 
 **Why text-based first?**

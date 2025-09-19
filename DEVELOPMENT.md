@@ -62,7 +62,7 @@ with well-defined interfaces between components.
 
 // Configurable options:
 - API keys with secure storage
-- Model selection (deepseek-coder, deepseek-chat, etc.)
+- Model selection (deepseek-reasoner, deepseek-chat, etc.)
 - Temperature and max-tokens
 - Editor preferences
 - Session persistence settings

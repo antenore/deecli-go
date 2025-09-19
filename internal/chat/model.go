@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/antenore/deecli/internal/ai"
 	"github.com/antenore/deecli/internal/api"
@@ -94,6 +95,21 @@ func initializeComponents(width, height int, client *api.Service, configManager 
 	}
 
 	fileCtx := files.NewFileContext()
+
+	// Initialize file watcher with configuration
+	var debounceMs int = 100 // Default debounce time
+	if configManager != nil {
+		debounceMs = configManager.GetAutoReloadDebounce()
+	}
+	watcher, err := files.NewWatcher(time.Duration(debounceMs) * time.Millisecond)
+	if err == nil && watcher.IsSupported() {
+		fileCtx.SetWatcher(watcher)
+	} else if err != nil {
+		// Log warning but continue
+		fmt.Printf("⚠️ File watching not supported: %v\n", err)
+		fmt.Printf("   Use /reload command to manually reload modified files\n")
+	}
+
 	completionEngine := NewCompletionEngine()
 	renderer := ui.NewRenderer(configManager)
 	layoutManager := ui.NewLayout(configManager)
@@ -233,6 +249,44 @@ func newChatModelInternal(configManager *config.Manager, apiKey, model string, t
 				return "Welcome to DeeCLI"
 			},
 		})
+	}
+
+	// Enable auto-reload if configured and supported
+	if configManager != nil && configManager.GetAutoReloadFiles() && fileCtx.IsAutoReloadSupported() {
+		// Create a context for the watcher (it will live for the lifetime of the app)
+		ctx := context.Background()
+
+		// Set up auto-reload with notification callback
+		if err := fileCtx.EnableAutoReload(ctx, func(results []files.ReloadResult) {
+			// Show auto-reload notification if configured
+			if configManager.GetShowReloadNotices() {
+				changedCount := 0
+				for _, result := range results {
+					if result.Status == "changed" {
+						changedCount++
+					}
+				}
+				if changedCount > 0 {
+					chatModel.addMessage("system", fmt.Sprintf("📁 Auto-reloaded %d modified file(s)", changedCount))
+
+					// Update sidebar if visible
+					if chatModel.filesWidgetVisible {
+						chatModel.sidebarViewport.SetContent(chatModel.renderFilesSidebar())
+					}
+
+					// Refresh viewport to show the message
+					chatModel.refreshViewport()
+				}
+			}
+		}); err != nil {
+			// Auto-reload setup failed, but continue
+			chatModel.addMessage("system", fmt.Sprintf("⚠️ Auto-reload setup failed: %v", err))
+		}
+	} else if configManager != nil && !fileCtx.IsAutoReloadSupported() {
+		// Show platform limitation message once
+		chatModel.addMessage("system",
+			"ℹ️ File auto-reload is not available on this platform.\n" +
+			"   Use /reload command to manually reload modified files.")
 	}
 
 	return chatModel

@@ -338,7 +338,7 @@ func (ce *CompletionEngine) completeConfigKeys(prefix string) []string {
 // completeModels returns available model names
 func (ce *CompletionEngine) completeModels(prefix string) []string {
 	models := []string{
-		"deepseek-chat", "deepseek-reasoner", "deepseek-coder",
+		"deepseek-chat", "deepseek-reasoner",
 	}
 
 	var matches []string

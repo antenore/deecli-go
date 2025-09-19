@@ -116,10 +116,23 @@ func (fl *FileLoader) loadSingleFile(absPath string) (LoadedFile, error) {
 		return LoadedFile{}, fmt.Errorf("error reading file: %w", err)
 	}
 
-	relPath, err := filepath.Rel(".", absPath)
-	if err != nil || relPath == "" {
-		// Fallback to just the filename if Rel fails
-		relPath = filepath.Base(absPath)
+	// Calculate relative path from current working directory
+	cwd, cwdErr := os.Getwd()
+	var relPath string
+
+	if cwdErr == nil {
+		relPath, err = filepath.Rel(cwd, absPath)
+		// If the file is in current directory or subdirectory, use the relative path
+		// Otherwise, keep the absolute path for clarity
+		if err != nil || strings.HasPrefix(relPath, "..") {
+			relPath = absPath
+		}
+	} else {
+		// Fallback if we can't get cwd
+		relPath, err = filepath.Rel(".", absPath)
+		if err != nil {
+			relPath = absPath
+		}
 	}
 
 	return LoadedFile{
