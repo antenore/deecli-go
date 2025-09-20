@@ -321,9 +321,12 @@ func (fw *FileWatcher) Stop() error {
 
 	close(fw.stopChan)
 
+	fw.mu.Lock()
 	if fw.debounceTimer != nil {
 		fw.debounceTimer.Stop()
+		fw.debounceTimer = nil
 	}
+	fw.mu.Unlock()
 
 	if fw.watcher != nil {
 		return fw.watcher.Close()

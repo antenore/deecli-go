@@ -18,6 +18,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -129,13 +131,13 @@ func TestFileContext_AutoReload_DuplicatePrevention(t *testing.T) {
 	err = fc.LoadFile(tmpFile.Name())
 	require.NoError(t, err)
 
-	// Set up auto-reload
-	reloadCount := 0
+	// Set up auto-reload with proper synchronization
+	var reloadCount int32
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	err = fc.EnableAutoReload(ctx, func(results []ReloadResult) {
-		reloadCount++
+		atomic.AddInt32(&reloadCount, 1)
 	})
 	require.NoError(t, err)
 
@@ -155,7 +157,7 @@ func TestFileContext_AutoReload_DuplicatePrevention(t *testing.T) {
 
 	// Wait 300ms (less than the 500ms cooldown) and check no auto-reload occurred
 	time.Sleep(300 * time.Millisecond)
-	assert.Equal(t, 0, reloadCount, "Auto-reload should not occur within 500ms of manual reload")
+	assert.Equal(t, int32(0), atomic.LoadInt32(&reloadCount), "Auto-reload should not occur within 500ms of manual reload")
 
 	// Wait another 300ms (total 600ms, past the cooldown) and modify again
 	time.Sleep(300 * time.Millisecond)
@@ -166,7 +168,7 @@ func TestFileContext_AutoReload_DuplicatePrevention(t *testing.T) {
 
 	// Wait for auto-reload
 	time.Sleep(200 * time.Millisecond)
-	assert.Equal(t, 1, reloadCount, "Auto-reload should occur after cooldown period")
+	assert.Equal(t, int32(1), atomic.LoadInt32(&reloadCount), "Auto-reload should occur after cooldown period")
 }
 
 func TestFileContext_AutoReload_UnsupportedPlatform(t *testing.T) {
@@ -237,13 +239,13 @@ func TestFileContext_AutoReload_FileOperations(t *testing.T) {
 	tmpFile2.WriteString("content 2")
 	tmpFile2.Close()
 
-	// Enable auto-reload
+	// Enable auto-reload with proper synchronization
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	reloadCount := 0
+	var reloadCount int32
 	err = fc.EnableAutoReload(ctx, func(results []ReloadResult) {
-		reloadCount++
+		atomic.AddInt32(&reloadCount, 1)
 	})
 	require.NoError(t, err)
 
@@ -266,13 +268,13 @@ func TestFileContext_AutoReload_FileOperations(t *testing.T) {
 	err = ioutil.WriteFile(tmpFile1.Name(), []byte("modified removed file"), 0644)
 	require.NoError(t, err)
 	time.Sleep(150 * time.Millisecond)
-	assert.Equal(t, 0, reloadCount, "Removed file should not trigger auto-reload")
+	assert.Equal(t, int32(0), atomic.LoadInt32(&reloadCount), "Removed file should not trigger auto-reload")
 
 	// Modify the remaining file - should trigger reload
 	err = ioutil.WriteFile(tmpFile2.Name(), []byte("modified remaining file"), 0644)
 	require.NoError(t, err)
 	time.Sleep(150 * time.Millisecond)
-	assert.Equal(t, 1, reloadCount, "Remaining file should trigger auto-reload")
+	assert.Equal(t, int32(1), atomic.LoadInt32(&reloadCount), "Remaining file should trigger auto-reload")
 
 	// Test Clear() stops watching all files
 	fc.Clear()
@@ -290,7 +292,7 @@ func TestFileContext_AutoReload_FileOperations(t *testing.T) {
 	time.Sleep(150 * time.Millisecond)
 
 	// The count should be 2 now because the file was automatically watched when loaded
-	assert.Equal(t, 2, reloadCount, "File should be auto-watched when loaded after clear")
+	assert.Equal(t, int32(2), atomic.LoadInt32(&reloadCount), "File should be auto-watched when loaded after clear")
 }
 
 func TestFileContext_AutoReload_MultipleFiles(t *testing.T) {
@@ -331,13 +333,16 @@ func TestFileContext_AutoReload_MultipleFiles(t *testing.T) {
 
 	assert.Len(t, fc.Files, 3)
 
-	// Enable auto-reload
+	// Enable auto-reload with proper synchronization
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
 	var allReloadResults []ReloadResult
+	var resultsMutex sync.Mutex
 	err = fc.EnableAutoReload(ctx, func(results []ReloadResult) {
+		resultsMutex.Lock()
 		allReloadResults = append(allReloadResults, results...)
+		resultsMutex.Unlock()
 	})
 	require.NoError(t, err)
 
@@ -354,8 +359,11 @@ func TestFileContext_AutoReload_MultipleFiles(t *testing.T) {
 	// Wait for auto-reload to process all files
 	time.Sleep(200 * time.Millisecond)
 
-	// Verify all files were reloaded
-	assert.GreaterOrEqual(t, len(allReloadResults), 3, "All files should be detected as changed")
+	// Verify all files were reloaded (with synchronization)
+	resultsMutex.Lock()
+	resultCount := len(allReloadResults)
+	resultsMutex.Unlock()
+	assert.GreaterOrEqual(t, resultCount, 3, "All files should be detected as changed")
 
 	// Verify file contents were updated
 	for i, file := range fc.Files {
