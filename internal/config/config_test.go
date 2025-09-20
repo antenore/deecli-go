@@ -322,8 +322,18 @@ func TestValidateMaxTokens(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "Valid tokens 32768 for reasoner",
+			tokens:  32768,
+			wantErr: false,
+		},
+		{
+			name:    "Valid tokens 65536 max",
+			tokens:  65536,
+			wantErr: false,
+		},
+		{
 			name:    "Invalid tokens too high",
-			tokens:  40000,
+			tokens:  70000,
 			wantErr: true,
 		},
 	}

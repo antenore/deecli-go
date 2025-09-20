@@ -366,7 +366,7 @@ func (ce *CompletionEngine) completeConfigValues(key, prefix string) []string {
 		}
 		return matches
 	case "max-tokens":
-		values := []string{"1024", "2048", "4096", "8192", "16384", "32768"}
+		values := []string{"1024", "2048", "4096", "8192", "16384", "32768", "65536"}
 		var matches []string
 		for _, val := range values {
 			if strings.HasPrefix(val, prefix) {

@@ -140,7 +140,7 @@ func (cc *ConfigCommands) handleConfigCommand(args []string) {
 	case "max-tokens":
 		if len(args) < 2 {
 			cc.deps.MessageLogger("system", "Usage: /config max-tokens <number> [--global|--project]")
-			cc.deps.MessageLogger("system", "Examples: 1024 (short), 2048 (default), 4096 (long)")
+			cc.deps.MessageLogger("system", "Examples: 2048 (default), 8192 (chat max), 32768 (reasoner default), 65536 (reasoner max)")
 		} else {
 			cc.handleConfigSet("max-tokens", args[1], args[2:])
 		}
@@ -418,7 +418,8 @@ func (cc *ConfigCommands) handleConfigSet(key, value string, flags []string) {
 		}
 		if err := config.ValidateMaxTokens(tokens); err != nil {
 			cc.deps.MessageLogger("system", fmt.Sprintf("❌ %v", err))
-			cc.deps.MessageLogger("system", "   Recommended range: 1024-8192 for most tasks")
+			cc.deps.MessageLogger("system", "   Limits: deepseek-chat (max 8192), deepseek-reasoner (max 65536)")
+			cc.deps.MessageLogger("system", "   Recommended: 8192 for chat, 32768 for reasoner")
 			return
 		}
 		newCfg.MaxTokens = tokens

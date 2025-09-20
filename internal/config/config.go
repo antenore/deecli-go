@@ -498,8 +498,11 @@ func ValidateMaxTokens(tokens int) error {
 	if tokens <= 0 {
 		return fmt.Errorf("max_tokens must be positive, got: %d", tokens)
 	}
-	if tokens > 32768 {
-		return fmt.Errorf("max_tokens exceeds maximum (32768), got: %d", tokens)
+	// deepseek-reasoner supports up to 64K tokens output
+	// deepseek-chat supports up to 8K tokens output
+	// We'll allow up to 65536 to support both models
+	if tokens > 65536 {
+		return fmt.Errorf("max_tokens exceeds maximum (65536), got: %d", tokens)
 	}
 	return nil
 }
