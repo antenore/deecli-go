@@ -15,10 +15,11 @@
 - [x] **Assistant Identity**: VERIFIED - Already consistently named "DeeCLI" across the UI, commands, and prompts
 - [x] **File Change Detection**: FIXED - Auto-reload now works correctly with all editors (handles RENAME events from editor saves)
 - [x] **Enhanced Config Validation**: COMPLETED - Model whitelists, key bindings, and all config fields now validated with helpful error messages
+- [ ] **Architecture: model.go Size Violation**: CRITICAL - model.go is 1022 lines, violating CLAUDE.md's 800-line target. Need major refactoring to extract Update method (~396 lines) and other large components to achieve proper separation of concerns per SOLID principles.
 
 ### P1: High-Impact User Experience
 - [x] **User Name Configuration**: COMPLETED - Users can now set a display name during setup and via /config command, replacing the generic "You:" in chat
-- [ ] **Bug: Thinking Spinner Duration**: PARTIAL FIX - Spinner now shows longer but still stops before content appears. There's a gap of several seconds between spinner stopping and text appearing. Need to investigate why empty chunks trigger spinner stop.
+- [x] **Bug: Thinking Spinner Duration**: FIXED - Spinner now continues during actual thinking phase and only stops when meaningful AI content arrives. Delayed DeeCLI prompt display until real content streams.
 - [ ] **Output Formatting**: Ensure code blocks in responses are well-formatted and easy to copy.
 - [ ] **Token Usage Display**: Show the current token count in the interface to help users manage context.
 - [ ] **Token Estimation & Warnings**: Warn users before they hit API token limits.
@@ -89,12 +90,12 @@
 ## ✅ Recently Completed
 
 *Keep this section to celebrate progress and provide context.* (Keep at max 6 entries)
+- **Fixed Thinking Spinner Duration Bug** - Spinner now properly continues during AI thinking phase instead of stopping prematurely
+- **Partial Architecture Refactoring** - Extracted streaming and message managers, reduced model.go from 1109 to 1022 lines (still needs major work)
 - **User Name Configuration** - Custom display names in chat, configurable during setup or via /config
 - **Enhanced Config Validation** - All config fields validated with helpful error messages
 - **Fixed File Auto-reload** - Now handles RENAME events from editors, watches files correctly
 - **Visual Thinking Indicator** - Animated spinner with multiple styles for AI processing feedback
-- **Enhanced Testing Infrastructure** - Professional Makefile, coverage reports, CI/CD pipeline
-- **Fixed `/edit` Context Awareness Bug** - Conversation context detection with interactive fallback
 
 ---
 

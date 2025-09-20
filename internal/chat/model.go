@@ -25,6 +25,8 @@ import (
 	"github.com/antenore/deecli/internal/chat/commands"
 	"github.com/antenore/deecli/internal/chat/input"
 	"github.com/antenore/deecli/internal/chat/keydetect"
+	"github.com/antenore/deecli/internal/chat/messages"
+	"github.com/antenore/deecli/internal/chat/streaming"
 	"github.com/antenore/deecli/internal/chat/tracker"
 	"github.com/antenore/deecli/internal/chat/ui"
 	viewportmgr "github.com/antenore/deecli/internal/chat/viewport"
@@ -37,7 +39,6 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
 
 // Custom message types for tea
@@ -70,6 +71,7 @@ type NewModel struct {
 	loadingMsg       string
 	focusMode        string // "input", "viewport", or "sidebar" - tracks which component has focus
 	keyDetector      *keydetect.Detector // Key detection handler
+	messageManager   *messages.Manager // Message storage and formatting
 	messages         []string // Keep track of all messages for full scrollback
 	apiMessages      []api.Message // Keep chat history for API context
 	sessionManager   *sessions.Manager
@@ -80,9 +82,10 @@ type NewModel struct {
 	fileTracker      *tracker.FileTracker // Track files mentioned in AI responses
 
 	// Streaming support
-	streamingEnabled bool             // Whether to use streaming API
-	streamReader     api.StreamReader // Current stream reader
-	streamContent    string           // Accumulated stream content
+	streamingEnabled bool                // Whether to use streaming API
+	streamingManager *streaming.Manager // Streaming operations manager
+	streamReader     api.StreamReader   // Current stream reader
+	streamContent    string             // Accumulated stream content
 }
 
 // initializeComponents creates common components needed by both constructors
@@ -205,7 +208,17 @@ func newChatModelInternal(configManager *config.Manager, apiKey, model string, t
 		currentSession:   currentSession,
 		fileTracker:      tracker.NewFileTracker(), // Initialize file tracker
 		streamingEnabled: true, // Enable streaming by default
+		streamingManager: streaming.NewManager(), // Initialize streaming manager
 	}
+
+	// Initialize message manager
+	chatModel.messageManager = messages.NewManager(messages.Dependencies{
+		Renderer:       chatModel.renderer,
+		Spinner:        chatModel.spinner,
+		SessionManager: chatModel.sessionManager,
+		CurrentSession: chatModel.currentSession,
+		AIOperations:   chatModel.aiOperations,
+	})
 
 	// Initialize input manager
 	chatModel.inputManager = input.NewManager(
@@ -292,19 +305,14 @@ func newChatModelInternal(configManager *config.Manager, apiKey, model string, t
 	return chatModel
 }
 
-// getHistoryManager returns the history manager from input manager
-func (m *NewModel) getHistoryManager() *history.Manager {
-	if m.inputManager != nil {
-		return m.inputManager.GetHistoryManager()
-	}
-	return nil
-}
-
 // createCommandDependencies creates Dependencies struct for command handlers
 func (m *NewModel) createCommandDependencies() commands.Dependencies {
 	var inputHistory []string
+	var historyManager *history.Manager
+
 	if m.inputManager != nil {
 		inputHistory = m.inputManager.GetInputHistory()
+		historyManager = m.inputManager.GetHistoryManager()
 	}
 
 	return commands.Dependencies{
@@ -313,7 +321,7 @@ func (m *NewModel) createCommandDependencies() commands.Dependencies {
 		ConfigManager:    m.configManager,
 		SessionManager:   m.sessionManager,
 		CurrentSession:   m.currentSession,
-		HistoryManager:   m.getHistoryManager(),
+		HistoryManager:   historyManager,
 		FileTracker:      m.fileTracker,
 		Messages:         m.messages,
 		APIMessages:      m.apiMessages,
@@ -323,20 +331,17 @@ func (m *NewModel) createCommandDependencies() commands.Dependencies {
 		SetLoading:       m.setLoading,
 		SetCancel:        m.setCancel,
 		RefreshUI:        m.refreshViewport,
-		ShowHistory:      m.showHistoryFromInputManager,
+		ShowHistory: func() {
+			if m.inputManager != nil {
+				m.inputManager.ShowHistory()
+			}
+		},
 		AnalyzeFiles:     m.analyzeFiles,
 		ExplainFiles:     m.explainFiles,
 		ImproveFiles:     m.improveFiles,
 		GenerateEditSuggestions: m.generateEditSuggestions,
 		SetHelpVisible:   m.setHelpVisible,
 		SetKeyDetection:  m.keyDetector.SetDetection,
-	}
-}
-
-// Helper methods for command dependencies
-func (m *NewModel) showHistoryFromInputManager() {
-	if m.inputManager != nil {
-		m.inputManager.ShowHistory()
 	}
 }
 
@@ -460,10 +465,9 @@ func (m *NewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if cmd := m.setLoading(true, "Thinking..."); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
-		// Add initial placeholder assistant message - this will be updated during streaming
-		m.messages = append(m.messages, m.renderer.FormatMessage("assistant", ""))
-		m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
-		m.viewport.GotoBottom()
+		// Don't add assistant message yet - wait for actual content
+		// Keep showing "Thinking..." until we get real AI response
+		m.refreshViewport()
 		// Start reading the first chunk
 		return m, ai.ReadNextChunk(msg.Stream, m.streamContent)
 
@@ -477,12 +481,35 @@ func (m *NewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Append chunk content
 		m.streamContent += msg.Content
 
+		// Add assistant message on first content (when we actually have a response starting)
+		if msg.Content != "" && len(m.messages) > 0 {
+			// Check if we need to add the assistant message
+			lastMsg := m.messages[len(m.messages)-1]
+			if !strings.Contains(lastMsg, "DeeCLI:") && !strings.Contains(lastMsg, "assistant:") {
+				// Add the assistant message now that we have actual content
+				m.messages = append(m.messages, m.renderer.FormatMessage("assistant", ""))
+			}
+		}
+
+		// Stop spinner only when we have accumulated meaningful AI content
+		// This ensures the spinner stays visible during the "thinking" phase
+		if m.isLoading && len(strings.TrimSpace(m.streamContent)) >= 10 {
+			if cmd := m.setLoading(false, ""); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+
 		// Update the display with accumulated content
 		m.updateStreamingDisplay(m.streamContent)
 
 		// Continue reading next chunk
 		if m.streamReader != nil {
-			return m, ai.ReadNextChunk(m.streamReader, m.streamContent)
+			nextCmd := ai.ReadNextChunk(m.streamReader, m.streamContent)
+			if len(cmds) > 0 {
+				cmds = append(cmds, nextCmd)
+				return m, tea.Batch(cmds...)
+			}
+			return m, nextCmd
 		}
 
 	case ai.StreamCompleteMsg:
@@ -833,76 +860,35 @@ func (m *NewModel) layout() {
 }
 
 func (m *NewModel) addMessage(role, content string) {
-	// Update renderer with current viewport dimensions
-	if m.renderer != nil {
-		m.renderer.SetViewportWidth(m.viewport.Width, m.filesWidgetVisible)
-	}
+	// Delegate to message manager
+	viewportWrapper := messages.NewViewportWrapper(&m.viewport)
+	m.messageManager.AddMessage(role, content, viewportWrapper, m.filesWidgetVisible)
 
-	// Save to session database
-	if m.sessionManager != nil && m.currentSession != nil && role != "system" {
-		m.sessionManager.SaveMessage(m.currentSession.ID, role, content)
-	}
-
-	// Store in API format for conversation context (exclude system messages)
-	if role != "system" {
-		m.apiMessages = append(m.apiMessages, api.Message{
-			Role:    role,
-			Content: content,
-		})
-		// Sync with AI operations
-		if m.aiOperations != nil {
-			m.aiOperations.SetAPIMessages(m.apiMessages)
-		}
-	}
-
-	// Use renderer to format the message
-	var formattedContent string
-	if m.renderer != nil {
-		formattedContent = m.renderer.FormatMessage(role, content)
-	} else {
-		// Fallback if renderer is not available
-		formattedContent = fmt.Sprintf("%s: %s", role, content)
-	}
-	
-	// Add to message history
-	m.messages = append(m.messages, formattedContent)
-	
-	// Rebuild full content from all messages
-	fullContent := strings.Join(m.messages, "\n\n")
-	m.viewport.SetContent(fullContent)
-	m.viewport.GotoBottom()
+	// Update local references for backward compatibility
+	m.messages = m.messageManager.GetMessages()
+	m.apiMessages = m.messageManager.GetAPIMessages()
 }
 
 func (m *NewModel) refreshViewport() {
-	// Rebuild viewport from message history
-	if m.isLoading {
-		// Use renderer with animated spinner
-		var loadingDisplay string
-		if m.renderer != nil {
-			loadingDisplay = m.renderer.FormatLoadingMessageWithSpinner(m.loadingMsg, m.spinner.Frame())
-		} else {
-			// Fallback if renderer is not available
-			loadingStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true)
-			spinnerFrame := m.spinner.Frame()
-			if spinnerFrame == "" {
-				spinnerFrame = "🔄"
-			}
-			loadingDisplay = loadingStyle.Render(spinnerFrame + " " + m.loadingMsg)
-		}
+	// Delegate to message manager
+	viewportWrapper := messages.NewViewportWrapper(&m.viewport)
+	m.messageManager.RefreshViewport(viewportWrapper, m.isLoading, m.loadingMsg)
+}
 
-		// Show all messages plus loading indicator
-		allContent := strings.Join(m.messages, "\n\n")
-		if allContent != "" {
-			m.viewport.SetContent(allContent + "\n\n" + loadingDisplay)
-		} else {
-			m.viewport.SetContent(loadingDisplay)
-		}
-		m.viewport.GotoBottom()
-	} else {
-		// Just show all messages
-		fullContent := strings.Join(m.messages, "\n\n")
-		m.viewport.SetContent(fullContent)
+// updateStreamingDisplay updates the display with streaming content
+func (m *NewModel) updateStreamingDisplay(content string) {
+	// Only update if we have messages (allow updates during entire streaming process)
+	if len(m.messages) == 0 {
+		return
 	}
+
+	// Update the last message (which should be our streaming assistant message)
+	lastIdx := len(m.messages) - 1
+	m.messages[lastIdx] = m.renderer.FormatMessage("assistant", content)
+
+	// Update viewport content
+	m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
+	m.viewport.GotoBottom()
 }
 
 
@@ -1015,22 +1001,6 @@ func (m *NewModel) handleAPIResponse(response string, err error) {
 
 // updateStreamingDisplay updates the display with streaming content
 // Following the official Bubbletea chat example pattern
-func (m *NewModel) updateStreamingDisplay(content string) {
-	// Only update if we're in loading/streaming mode and have messages
-	if !m.isLoading || len(m.messages) == 0 {
-		return
-	}
-
-	// Update the last message (which should be our streaming assistant message)
-	// This follows the exact pattern from the official Bubbletea chat example
-	lastIdx := len(m.messages) - 1
-	m.messages[lastIdx] = m.renderer.FormatMessage("assistant", content)
-
-	// Follow official pattern: SetContent + GotoBottom
-	m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
-	m.viewport.GotoBottom()
-}
-
 // handleStreamComplete handles the completion of a stream
 func (m *NewModel) handleStreamComplete(content string, err error) {
 	m.setLoading(false, "")
@@ -1084,12 +1054,13 @@ func (m *NewModel) loadPreviousSession() error {
 		return err
 	}
 
+	// Use message manager to set messages
+	m.messageManager.SetMessages(messages)
+	m.messageManager.SetAPIMessages(apiMessages)
+
+	// Update local references for backward compatibility
 	m.messages = messages
 	m.apiMessages = apiMessages
-	// Sync with AI operations
-	if m.aiOperations != nil {
-		m.aiOperations.SetAPIMessages(m.apiMessages)
-	}
 
 	return nil
 }
