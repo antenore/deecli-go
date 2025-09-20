@@ -323,7 +323,8 @@ func (ce *CompletionEngine) completeConfigSubcommands(prefix string) []string {
 // completeConfigKeys returns available configuration keys
 func (ce *CompletionEngine) completeConfigKeys(prefix string) []string {
 	keys := []string{
-		"api-key", "model", "temperature", "max-tokens",
+		"api-key", "model", "user-name", "temperature", "max-tokens",
+		"auto-reload-files", "auto-reload-debounce", "show-reload-notices",
 	}
 
 	var matches []string
@@ -365,7 +366,7 @@ func (ce *CompletionEngine) completeConfigValues(key, prefix string) []string {
 		}
 		return matches
 	case "max-tokens":
-		values := []string{"1024", "2048", "4096", "8192"}
+		values := []string{"1024", "2048", "4096", "8192", "16384", "32768"}
 		var matches []string
 		for _, val := range values {
 			if strings.HasPrefix(val, prefix) {
@@ -373,6 +374,36 @@ func (ce *CompletionEngine) completeConfigValues(key, prefix string) []string {
 			}
 		}
 		return matches
+	case "auto-reload-files":
+		values := []string{"true", "false"}
+		var matches []string
+		for _, val := range values {
+			if strings.HasPrefix(val, prefix) {
+				matches = append(matches, val)
+			}
+		}
+		return matches
+	case "show-reload-notices":
+		values := []string{"true", "false"}
+		var matches []string
+		for _, val := range values {
+			if strings.HasPrefix(val, prefix) {
+				matches = append(matches, val)
+			}
+		}
+		return matches
+	case "auto-reload-debounce":
+		values := []string{"50", "100", "200", "500", "1000"}
+		var matches []string
+		for _, val := range values {
+			if strings.HasPrefix(val, prefix) {
+				matches = append(matches, val)
+			}
+		}
+		return matches
+	case "user-name":
+		// No suggested values for user name - it's custom
+		return nil
 	default:
 		return nil
 	}

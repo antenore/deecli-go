@@ -52,7 +52,7 @@ var configShowCmd = &cobra.Command{
 var configSetCmd = &cobra.Command{
 	Use:   "set <key> <value>",
 	Short: "Set a configuration value",
-	Long:  `Set a configuration value. Valid keys: api-key, model, temperature, max-tokens`,
+	Long:  `Set a configuration value. Valid keys: api-key, model, user-name, temperature, max-tokens`,
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runConfigSet(args[0], args[1])
@@ -128,6 +128,14 @@ func runConfigInit() error {
 	fmt.Println("=============================")
 	fmt.Println()
 
+	// Get user name for chat display
+	fmt.Print("Enter your display name for chat (default: You): ")
+	userNameInput, _ := reader.ReadString('\n')
+	userNameInput = strings.TrimSpace(userNameInput)
+	if userNameInput == "" {
+		userNameInput = "You"
+	}
+
 	// Get API key
 	fmt.Print("Enter your DeepSeek API key: ")
 	bytePassword, err := term.ReadPassword(int(syscall.Stdin))
@@ -173,6 +181,7 @@ func runConfigInit() error {
 		Model:       modelInput,
 		Temperature: tempValue,
 		MaxTokens:   tokensValue,
+		UserName:    userNameInput,
 		Profiles:    make(map[string]config.Profile),
 	}
 
@@ -223,6 +232,7 @@ func runConfigShow() error {
 		apiKeyDisplay = apiKeyDisplay[:4] + "..." + apiKeyDisplay[len(apiKeyDisplay)-4:]
 	}
 	
+	fmt.Printf("User Name:    %s\n", cfg.UserName)
 	fmt.Printf("API Key:      %s\n", apiKeyDisplay)
 	fmt.Printf("Model:        %s\n", cfg.Model)
 	fmt.Printf("Temperature:  %.2f\n", cfg.Temperature)
@@ -260,6 +270,9 @@ func runConfigSet(key, value string) error {
 	case "model":
 		newCfg.Model = value
 		fmt.Printf("✅ Model set to: %s\n", value)
+	case "user-name":
+		newCfg.UserName = value
+		fmt.Printf("✅ User name set to: %s\n", value)
 	case "temperature":
 		var temp float64
 		if _, err := fmt.Sscanf(value, "%f", &temp); err != nil {
@@ -287,7 +300,7 @@ func runConfigSet(key, value string) error {
 		fmt.Println("   (Editor integration will use this preference in future versions)")
 		return nil
 	default:
-		return fmt.Errorf("unknown config key: %s. Valid keys: api-key, model, temperature, max-tokens, editor", key)
+		return fmt.Errorf("unknown config key: %s. Valid keys: api-key, model, user-name, temperature, max-tokens, editor", key)
 	}
 
 	// Determine where to save

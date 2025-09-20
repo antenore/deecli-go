@@ -51,7 +51,11 @@ func (r *Renderer) FormatMessage(role, content string) string {
 	switch role {
 	case "user":
 		style = lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true)
-		prefix = "You: "
+		userName := "You"
+		if r.configManager != nil {
+			userName = r.configManager.GetUserName()
+		}
+		prefix = userName + ": "
 	case "assistant":
 		style = lipgloss.NewStyle().Foreground(lipgloss.Color("86")).Bold(true)
 		prefix = "DeeCLI: "

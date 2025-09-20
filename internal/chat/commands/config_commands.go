@@ -110,14 +110,14 @@ func (cc *ConfigCommands) handleConfigCommand(args []string) {
 	case "set":
 		if len(args) < 3 {
 			cc.deps.MessageLogger("system", "Usage: /config set <key> <value> [--global|--project]")
-			cc.deps.MessageLogger("system", "Keys: api-key, model, temperature, max-tokens, auto-reload-files, auto-reload-debounce, show-reload-notices")
+			cc.deps.MessageLogger("system", "Keys: api-key, model, user-name, temperature, max-tokens, auto-reload-files, auto-reload-debounce, show-reload-notices")
 			return
 		}
 		cc.handleConfigSet(args[1], args[2], args[3:])
 	case "get":
 		if len(args) < 2 {
 			cc.deps.MessageLogger("system", "Usage: /config get <key>")
-			cc.deps.MessageLogger("system", "Keys: api-key, model, temperature, max-tokens, auto-reload-files, auto-reload-debounce, show-reload-notices")
+			cc.deps.MessageLogger("system", "Keys: api-key, model, user-name, temperature, max-tokens, auto-reload-files, auto-reload-debounce, show-reload-notices")
 			return
 		}
 		cc.handleConfigGet(args[1])
@@ -187,6 +187,7 @@ func (cc *ConfigCommands) showConfig() {
 			apiKeyDisplay = "Not set"
 		}
 
+		cc.deps.MessageLogger("system", fmt.Sprintf("  User Name: %s", cfg.UserName))
 		cc.deps.MessageLogger("system", fmt.Sprintf("  API Key: %s", apiKeyDisplay))
 		cc.deps.MessageLogger("system", fmt.Sprintf("  Model: %s", cfg.Model))
 		cc.deps.MessageLogger("system", fmt.Sprintf("  Temperature: %.2f", cfg.Temperature))
@@ -423,6 +424,14 @@ func (cc *ConfigCommands) handleConfigSet(key, value string, flags []string) {
 		newCfg.MaxTokens = tokens
 		cc.deps.MessageLogger("system", fmt.Sprintf("✅ Max tokens set to: %d", tokens))
 
+	case "user-name":
+		if err := config.ValidateUserName(value); err != nil {
+			cc.deps.MessageLogger("system", fmt.Sprintf("❌ %v", err))
+			return
+		}
+		newCfg.UserName = value
+		cc.deps.MessageLogger("system", fmt.Sprintf("✅ User name set to: %s", value))
+
 	case "auto-reload-files":
 		var enabled bool
 		if value == "true" || value == "1" || value == "yes" || value == "on" {
@@ -532,6 +541,9 @@ func (cc *ConfigCommands) handleConfigGet(key string) {
 	case "max-tokens":
 		cc.deps.MessageLogger("system", fmt.Sprintf("Max Tokens: %d", cfg.MaxTokens))
 
+	case "user-name":
+		cc.deps.MessageLogger("system", fmt.Sprintf("User Name: %s", cfg.UserName))
+
 	case "auto-reload-files":
 		cc.deps.MessageLogger("system", fmt.Sprintf("Auto-reload Files: %t", cfg.AutoReloadFiles))
 
@@ -543,7 +555,7 @@ func (cc *ConfigCommands) handleConfigGet(key string) {
 
 	default:
 		cc.deps.MessageLogger("system", fmt.Sprintf("❌ Unknown config key: %s", key))
-		cc.deps.MessageLogger("system", "Valid keys: api-key, model, temperature, max-tokens, auto-reload-files, auto-reload-debounce, show-reload-notices")
+		cc.deps.MessageLogger("system", "Valid keys: api-key, model, user-name, temperature, max-tokens, auto-reload-files, auto-reload-debounce, show-reload-notices")
 	}
 }
 

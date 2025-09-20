@@ -17,7 +17,7 @@
 - [x] **Enhanced Config Validation**: COMPLETED - Model whitelists, key bindings, and all config fields now validated with helpful error messages
 
 ### P1: High-Impact User Experience
-- [ ] **User Name Configuration**: Allow users to set a display name during setup (replacing the generic "You:").
+- [x] **User Name Configuration**: COMPLETED - Users can now set a display name during setup and via /config command, replacing the generic "You:" in chat
 - [ ] **Output Formatting**: Ensure code blocks in responses are well-formatted and easy to copy.
 - [ ] **Token Usage Display**: Show the current token count in the interface to help users manage context.
 - [ ] **Token Estimation & Warnings**: Warn users before they hit API token limits.
@@ -88,8 +88,8 @@
 ## ✅ Recently Completed
 
 *Keep this section to celebrate progress and provide context.* (Keep at max 6 entries)
+- **User Name Configuration** - Custom display names in chat, configurable during setup or via /config
 - **Enhanced Config Validation** - All config fields validated with helpful error messages
-- **Assistant Identity Consistency** - Verified "DeeCLI" naming is already consistent throughout
 - **Fixed File Auto-reload** - Now handles RENAME events from editors, watches files correctly
 - **Visual Thinking Indicator** - Animated spinner with multiple styles for AI processing feedback
 - **Enhanced Testing Infrastructure** - Professional Makefile, coverage reports, CI/CD pipeline
@@ -99,4 +99,4 @@
 
 **Note on Prioritization:** This list prioritizes **stability** (bugs, tests), **core user experience** (clear output, token management), and **reliability** (API error handling) above all new features. This approach ensures DeeCLI becomes a robust and trustworthy tool before expanding its feature set.
 
-*Last updated: September 19 2025*
+*Last updated: September 20 2025*

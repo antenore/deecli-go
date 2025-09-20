@@ -28,6 +28,7 @@ type Config struct {
 	Model            string             `yaml:"model"`
 	Temperature      float64            `yaml:"temperature"`
 	MaxTokens        int                `yaml:"max_tokens"`
+	UserName         string             `yaml:"user_name,omitempty"`              // User display name in chat
 	NewlineKey       string             `yaml:"newline_key,omitempty"`
 	HistoryBackKey   string             `yaml:"history_back_key,omitempty"`
 	HistoryForwardKey string            `yaml:"history_forward_key,omitempty"`
@@ -50,6 +51,7 @@ var (
 		Model:            "deepseek-chat",
 		Temperature:      0.1,
 		MaxTokens:        2048,
+		UserName:         "You",
 		Profiles:         make(map[string]Profile),
 		AutoReloadFiles:  true,
 		AutoReloadDebounce: 100,
@@ -157,6 +159,9 @@ func (m *Manager) mergeConfigs() *Config {
 		if m.globalConfig.MaxTokens != 0 {
 			merged.MaxTokens = m.globalConfig.MaxTokens
 		}
+		if m.globalConfig.UserName != "" {
+			merged.UserName = m.globalConfig.UserName
+		}
 		if len(m.globalConfig.Profiles) > 0 {
 			merged.Profiles = m.globalConfig.Profiles
 		}
@@ -184,6 +189,9 @@ func (m *Manager) mergeConfigs() *Config {
 		}
 		if m.projectConfig.MaxTokens != 0 {
 			merged.MaxTokens = m.projectConfig.MaxTokens
+		}
+		if m.projectConfig.UserName != "" {
+			merged.UserName = m.projectConfig.UserName
 		}
 		if m.projectConfig.ActiveProfile != "" {
 			merged.ActiveProfile = m.projectConfig.ActiveProfile
@@ -302,6 +310,7 @@ func (m *Manager) InitGlobalConfig(apiKey string) error {
 		Model:            defaultConfig.Model,
 		Temperature:      defaultConfig.Temperature,
 		MaxTokens:        defaultConfig.MaxTokens,
+		UserName:         defaultConfig.UserName,
 		Profiles:         make(map[string]Profile),
 		AutoReloadFiles:  defaultConfig.AutoReloadFiles,
 		AutoReloadDebounce: defaultConfig.AutoReloadDebounce,
@@ -357,6 +366,15 @@ func (m *Manager) GetAutoReloadDebounce() int {
 func (m *Manager) GetShowReloadNotices() bool {
 	cfg := m.Get()
 	return cfg.ShowReloadNotices
+}
+
+// GetUserName returns the configured user name for display in chat
+func (m *Manager) GetUserName() string {
+	cfg := m.Get()
+	if cfg.UserName != "" {
+		return cfg.UserName
+	}
+	return "You"
 }
 
 // GetHistoryBackKey returns the configured history back key with fallback defaults
@@ -497,6 +515,23 @@ func ValidateAutoReloadDebounce(debounce int) error {
 	return nil
 }
 
+// ValidateUserName checks if user name is valid
+func ValidateUserName(name string) error {
+	if name == "" {
+		return nil // Empty is ok, will use default
+	}
+	if len(name) > 50 {
+		return fmt.Errorf("user name too long (max 50 characters), got: %d", len(name))
+	}
+	// Basic sanitization check - no control characters
+	for _, r := range name {
+		if r < 32 || r == 127 {
+			return fmt.Errorf("user name contains invalid characters")
+		}
+	}
+	return nil
+}
+
 // Validate performs validation on the entire config
 func (c *Config) Validate() error {
 	// Validate model
@@ -516,6 +551,11 @@ func (c *Config) Validate() error {
 
 	// Validate max tokens
 	if err := ValidateMaxTokens(c.MaxTokens); err != nil {
+		return err
+	}
+
+	// Validate user name
+	if err := ValidateUserName(c.UserName); err != nil {
 		return err
 	}
 

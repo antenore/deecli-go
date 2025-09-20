@@ -70,6 +70,68 @@ func TestValidateModel(t *testing.T) {
 	}
 }
 
+func TestValidateUserName(t *testing.T) {
+	tests := []struct {
+		name     string
+		userName string
+		wantErr  bool
+		errMsg   string
+	}{
+		{
+			name:     "Valid user name",
+			userName: "Alice",
+			wantErr:  false,
+		},
+		{
+			name:     "Valid user name with spaces",
+			userName: "Alice Smith",
+			wantErr:  false,
+		},
+		{
+			name:     "Empty user name is valid",
+			userName: "",
+			wantErr:  false,
+		},
+		{
+			name:     "User name at max length",
+			userName: "ThisIsAVeryLongUserNameThatIsExactly50CharactersX",
+			wantErr:  false,
+		},
+		{
+			name:     "User name too long",
+			userName: "ThisIsAVeryLongUserNameThatIsMoreThanFiftyCharacters",
+			wantErr:  true,
+			errMsg:   "user name too long",
+		},
+		{
+			name:     "User name with control character",
+			userName: "Alice\x00",
+			wantErr:  true,
+			errMsg:   "user name contains invalid characters",
+		},
+		{
+			name:     "User name with tab character",
+			userName: "Alice\t",
+			wantErr:  true,
+			errMsg:   "user name contains invalid characters",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateUserName(tt.userName)
+			if tt.wantErr {
+				assert.Error(t, err)
+				if tt.errMsg != "" {
+					assert.Contains(t, err.Error(), tt.errMsg)
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestValidateAPIKey(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -278,6 +340,41 @@ func TestValidateMaxTokens(t *testing.T) {
 	}
 }
 
+func TestManager_GetUserName(t *testing.T) {
+	tests := []struct {
+		name     string
+		cfg      *Config
+		expected string
+	}{
+		{
+			name:     "Returns configured user name",
+			cfg:      &Config{UserName: "Alice"},
+			expected: "Alice",
+		},
+		{
+			name:     "Returns default when empty",
+			cfg:      &Config{UserName: ""},
+			expected: "You",
+		},
+		{
+			name:     "Returns default when nil config",
+			cfg:      nil,
+			expected: "You",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &Manager{}
+			if tt.cfg != nil {
+				m.mergedConfig = tt.cfg
+			}
+			result := m.GetUserName()
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 func TestConfig_Validate(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -292,8 +389,30 @@ func TestConfig_Validate(t *testing.T) {
 				APIKey:      "sk-abcdef123456789012345678901234567890",
 				Temperature: 0.7,
 				MaxTokens:   2048,
+				UserName:    "Alice",
 			},
 			wantErr: false,
+		},
+		{
+			name: "Valid config with long user name",
+			config: Config{
+				Model:       "deepseek-chat",
+				Temperature: 0.7,
+				MaxTokens:   2048,
+				UserName:    "ThisIsAVeryLongUserNameThatIsExactly50CharactersX",
+			},
+			wantErr: false,
+		},
+		{
+			name: "Invalid config with too long user name",
+			config: Config{
+				Model:       "deepseek-chat",
+				Temperature: 0.7,
+				MaxTokens:   2048,
+				UserName:    "ThisIsAVeryLongUserNameThatIsMoreThanFiftyCharacters",
+			},
+			wantErr: true,
+			errMsg:  "user name too long",
 		},
 		{
 			name: "Invalid model",
