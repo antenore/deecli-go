@@ -157,31 +157,26 @@ Files are managed with smart change detection:
 
 ### Testing Strategy
 
-DeeCLI implements comprehensive testing infrastructure with multiple test types:
+DeeCLI follows Go's standard testing practices:
 
 **Test Organization:**
-- `test/unit/` - Isolated component tests
-- `test/integration/` - Module interaction tests
-- `test/testdata/` - Test fixtures and sample data
-- `test/utils/` - Testing utilities and helpers
+- Tests are located alongside source code (`*_test.go` files)
+- Follow Go conventions - keep it simple
 
 **Test Commands:**
 ```bash
 make test               # All tests
 make test-unit          # Unit tests only
-make test-integration   # Integration tests only
 make test-coverage      # Tests with HTML coverage report
 make test-race          # Race condition detection
 make test-bench         # Benchmark tests
-make test-verbose       # Detailed test output
 ```
 
 **Testing Requirements:**
-1. **Unit tests**: For isolated components (using testify framework)
-2. **Integration tests**: For module interactions
-3. **Terminal testing**: Always test in real terminal environments
-4. **SSH testing**: Verify functionality over remote connections
-5. **Coverage tracking**: Maintain or improve test coverage with each change
+1. **Add tests** when implementing features or fixing bugs
+2. **Test in real environments** - Verify in actual terminals and SSH connections
+3. **Standard Go patterns** - Use built-in testing package
+4. **Incremental improvement** - Build coverage over time
 
 ### Adding New Features
 1. **Research existing patterns** before implementation

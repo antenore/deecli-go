@@ -18,6 +18,7 @@
 
 ### P1: High-Impact User Experience
 - [x] **User Name Configuration**: COMPLETED - Users can now set a display name during setup and via /config command, replacing the generic "You:" in chat
+- [ ] **Bug: Thinking Spinner Duration**: PARTIAL FIX - Spinner now shows longer but still stops before content appears. There's a gap of several seconds between spinner stopping and text appearing. Need to investigate why empty chunks trigger spinner stop.
 - [ ] **Output Formatting**: Ensure code blocks in responses are well-formatted and easy to copy.
 - [ ] **Token Usage Display**: Show the current token count in the interface to help users manage context.
 - [ ] **Token Estimation & Warnings**: Warn users before they hit API token limits.

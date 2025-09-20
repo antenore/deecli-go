@@ -25,13 +25,9 @@ COVERAGE_HTML=$(COVERAGE_DIR)/coverage.html
 test:
 	go test ./...
 
-# Run unit tests only
+# Run unit tests only (tests are alongside source code in internal/)
 test-unit:
-	go test ./test/unit/... ./internal/...
-
-# Run integration tests only (requires build tag)
-test-integration:
-	go test -tags=integration ./test/integration/...
+	go test ./internal/...
 
 # Run tests with coverage
 test-coverage:
@@ -43,7 +39,7 @@ test-coverage:
 # Run unit tests with coverage
 test-unit-coverage:
 	@mkdir -p $(COVERAGE_DIR)
-	go test -coverprofile=$(COVERAGE_DIR)/unit-coverage.out ./test/unit/... ./internal/...
+	go test -coverprofile=$(COVERAGE_DIR)/unit-coverage.out ./internal/...
 	go tool cover -html=$(COVERAGE_DIR)/unit-coverage.out -o $(COVERAGE_DIR)/unit-coverage.html
 	@echo "Unit test coverage report: $(COVERAGE_DIR)/unit-coverage.html"
 
@@ -66,7 +62,7 @@ test-coverage-func:
 	go tool cover -func=$(COVERAGE_PROFILE)
 
 # Run all test variants (comprehensive testing)
-test-all: test-unit test-integration test-coverage test-race test-bench
+test-all: test-unit test-coverage test-race test-bench
 
 # Clean test artifacts
 test-clean:
@@ -120,7 +116,6 @@ help:
 	@echo "Test Commands:"
 	@echo "  test           - Run all tests"
 	@echo "  test-unit      - Run unit tests only"
-	@echo "  test-integration - Run integration tests only"
 	@echo "  test-coverage  - Run tests with HTML coverage report"
 	@echo "  test-unit-coverage - Run unit tests with coverage"
 	@echo "  test-coverage-func - Show coverage percentages by function"
@@ -134,4 +129,4 @@ help:
 	@echo "  test-clean     - Remove test artifacts and cache"
 	@echo "  clean-all      - Remove all artifacts"
 
-.PHONY: build deps dev test test-unit test-integration test-coverage test-unit-coverage test-coverage-func test-bench test-race test-verbose test-all test-clean build-all build-linux build-darwin build-windows clean clean-all fmt lint help
+.PHONY: build deps dev test test-unit test-coverage test-unit-coverage test-coverage-func test-bench test-race test-verbose test-all test-clean build-all build-linux build-darwin build-windows clean clean-all fmt lint help

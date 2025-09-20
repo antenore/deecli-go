@@ -169,7 +169,7 @@ DeeCLI is built with **Go** and features a clean architecture with separate modu
 
 ### Testing
 
-DeeCLI includes comprehensive testing infrastructure:
+DeeCLI follows Go's standard testing practices:
 
 ```bash
 # Run all tests
@@ -184,14 +184,13 @@ make test-unit
 # Run tests with race detection
 make test-race
 
-# Run benchmark tests
-make test-bench
-
 # See all test commands
 make help
 ```
 
-The project maintains high test coverage with automated CI/CD pipeline.
+Tests are located alongside source code (`*_test.go` files) following Go conventions.
+
+See [TESTING.md](TESTING.md) for testing documentation.
 
 ### Building
 

@@ -54,23 +54,22 @@ Fix tab completion for hidden files
 
 ## Testing
 
-**TESTING IS MANDATORY** - Use the enhanced testing infrastructure:
+**Add tests for new features and bug fixes:**
 
 ```bash
 make test               # All tests (required before PR)
 make test-unit          # Unit tests only
-make test-integration   # Integration tests only
 make test-coverage      # Tests with HTML coverage report
 make test-race          # Race condition detection
-make test-bench         # Benchmark tests
 ```
 
 **Requirements:**
-- **Unit tests**: REQUIRED for all new features using testify framework
-- **Integration tests**: For module interactions
-- **Coverage**: Maintain or improve coverage (current: 88.4% tracker, 60.7% input, 24.6% API)
-- **Real environment testing**: Test in actual terminals and SSH connections
-- **Test organization**: Use `test/unit/`, `test/integration/`, `test/testdata/` structure
+- **Add tests** for new features or when fixing bugs
+- **Test location**: Alongside source code (`*_test.go` files)
+- **Standard Go testing** - Use built-in testing package
+- **Real environment testing** - Test in actual terminals and SSH connections
+
+Keep it simple. Follow Go conventions.
 
 ## Bug Reports
 
