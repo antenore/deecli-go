@@ -1,5 +1,7 @@
 # DeeCLI
 
+![Test Suite](https://github.com/antenore/deecli-go/actions/workflows/test.yml/badge.svg)
+
 A terminal-based AI assistant for code, built with Go and DeepSeek models.
 
 ## What it does
