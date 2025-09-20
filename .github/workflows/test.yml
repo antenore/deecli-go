@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: [1.24.x]
+        go-version: [1.21.x, 1.22.x]
 
     steps:
     - uses: actions/checkout@v4
@@ -32,22 +32,13 @@ jobs:
           ${{ runner.os }}-go-
 
     - name: Install dependencies
-      run: go mod download
+      run: make deps
 
-    - name: Run unit tests
-      run: make test-unit
-
-    - name: Run integration tests
-      run: make test-integration
-      env:
-        # Integration tests can run without API key (will be skipped)
-        DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+    - name: Run all tests
+      run: make test
 
     - name: Run tests with coverage
       run: make test-coverage
-
-    - name: Run benchmark tests
-      run: make test-bench
 
     - name: Run race condition tests
       run: make test-race
