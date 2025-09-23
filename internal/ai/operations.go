@@ -1,16 +1,25 @@
 package ai
 
 import (
-	"context"
-	"fmt"
-	"io"
-	"strings"
+    "context"
+    "fmt"
+    "io"
+    "os"
+    "strings"
+    "time"
 
-	"github.com/antenore/deecli/internal/api"
-	"github.com/antenore/deecli/internal/files"
+    "github.com/antenore/deecli/internal/api"
+    "github.com/antenore/deecli/internal/config"
+    "github.com/antenore/deecli/internal/files"
 
-	tea "github.com/charmbracelet/bubbletea"
+    tea "github.com/charmbracelet/bubbletea"
 )
+
+// EstimateTokens provides a rough estimation of token count from text
+// Uses the common approximation of 1 token ≈ 4 characters for most models
+func EstimateTokens(text string) int {
+	return len(text) / 4
+}
 
 // APIResponseMsg for async API calls
 type APIResponseMsg struct {
@@ -33,18 +42,20 @@ type StreamCompleteMsg struct {
 
 // Operations handles AI-related operations
 type Operations struct {
-	apiClient    *api.Service
-	apiMessages  []api.Message
-	apiCancel    context.CancelFunc
-	fileContext  *files.FileContext
+	apiClient     *api.Service
+	apiMessages   []api.Message
+	apiCancel     context.CancelFunc
+	fileContext   *files.FileContext
+	configManager *config.Manager
 }
 
 // NewOperations creates a new Operations instance
-func NewOperations(apiClient *api.Service, fileContext *files.FileContext) *Operations {
+func NewOperations(apiClient *api.Service, fileContext *files.FileContext, configManager *config.Manager) *Operations {
 	return &Operations{
-		apiClient:   apiClient,
-		apiMessages: []api.Message{},
-		fileContext: fileContext,
+		apiClient:     apiClient,
+		apiMessages:   []api.Message{},
+		fileContext:   fileContext,
+		configManager: configManager,
 	}
 }
 
@@ -70,8 +81,45 @@ func (o *Operations) SetAPICancel(cancel context.CancelFunc) {
 
 // CallAPI makes an API call with context and user input
 func (o *Operations) CallAPI(contextPrompt, userInput string) tea.Cmd {
-	// Create a context that can be cancelled
-	ctx, cancel := context.WithCancel(context.Background())
+	// Check context size limit before making API call
+	contextSize := len(contextPrompt) + len(userInput)
+	contextTokens := EstimateTokens(contextPrompt + userInput)
+
+	cfg := o.configManager.Get()
+	maxContextSize := cfg.MaxContextSize
+	if maxContextSize == 0 {
+		maxContextSize = 100000 // Default 100KB if not configured
+	}
+	maxContextTokens := EstimateTokens(fmt.Sprintf("%*s", maxContextSize, ""))
+
+    // Optional debug output (enable with DEECLI_DEBUG=1)
+    if os.Getenv("DEECLI_DEBUG") == "1" {
+        fmt.Printf("Debug: Context size check - chars: %d (limit: %d), tokens: %d (limit: %d)\n",
+            contextSize, maxContextSize, contextTokens, maxContextTokens)
+    }
+
+	// Check both character and token limits for safety
+	if contextSize > maxContextSize || contextTokens > maxContextTokens {
+		return func() tea.Msg {
+			// Get helpful info about loaded files
+			fileInfo := o.fileContext.GetInfo()
+			return APIResponseMsg{
+				Err: fmt.Errorf("context too large - chars: %d/%d, tokens: %d/%d\n\n%s\n\nTry loading fewer files or unload large files with /clear",
+					contextSize, maxContextSize, contextTokens, maxContextTokens, fileInfo),
+			}
+		}
+	}
+
+    // Create a context with model-aware timeout
+    timeout := 180 * time.Second
+    if o.configManager != nil {
+        cfg := o.configManager.Get()
+        if cfg != nil && strings.EqualFold(cfg.Model, "deepseek-reasoner") {
+            // Reasoner can take longer, allow more time
+            timeout = 300 * time.Second
+        }
+    }
+    ctx, cancel := context.WithTimeout(context.Background(), timeout)
 
 	// Store the cancel function so we can use it later
 	o.apiCancel = cancel
@@ -86,8 +134,46 @@ func (o *Operations) CallAPI(contextPrompt, userInput string) tea.Cmd {
 // CallAPIStream makes a streaming API call with context and user input
 // It returns a command that starts the streaming process
 func (o *Operations) CallAPIStream(contextPrompt, userInput string) tea.Cmd {
-	// Create a context that can be cancelled
-	ctx, cancel := context.WithCancel(context.Background())
+	// Check context size limit before making API call
+	contextSize := len(contextPrompt) + len(userInput)
+	contextTokens := EstimateTokens(contextPrompt + userInput)
+
+	cfg := o.configManager.Get()
+	maxContextSize := cfg.MaxContextSize
+	if maxContextSize == 0 {
+		maxContextSize = 100000 // Default 100KB if not configured
+	}
+	maxContextTokens := EstimateTokens(fmt.Sprintf("%*s", maxContextSize, ""))
+
+    // Optional debug output (enable with DEECLI_DEBUG=1)
+    if os.Getenv("DEECLI_DEBUG") == "1" {
+        fmt.Printf("Debug: Streaming context size check - chars: %d (limit: %d), tokens: %d (limit: %d)\n",
+            contextSize, maxContextSize, contextTokens, maxContextTokens)
+    }
+
+	// Check both character and token limits for safety
+	if contextSize > maxContextSize || contextTokens > maxContextTokens {
+		return func() tea.Msg {
+			// Get helpful info about loaded files
+			fileInfo := o.fileContext.GetInfo()
+			return StreamCompleteMsg{
+				Err: fmt.Errorf("context too large - chars: %d/%d, tokens: %d/%d\n\n%s\n\nTry loading fewer files or unload large files with /clear",
+					contextSize, maxContextSize, contextTokens, maxContextTokens, fileInfo),
+			}
+		}
+	}
+
+    // Set model-aware timeout
+    timeout := 180 * time.Second
+    if o.configManager != nil {
+        cfg := o.configManager.Get()
+        if cfg != nil && strings.EqualFold(cfg.Model, "deepseek-reasoner") {
+            timeout = 300 * time.Second
+        }
+    }
+
+	// Create a context with timeout
+    ctx, cancel := context.WithTimeout(context.Background(), timeout)
 
 	// Store the cancel function so we can use it later
 	o.apiCancel = cancel

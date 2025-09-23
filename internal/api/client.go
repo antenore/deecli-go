@@ -48,7 +48,7 @@ type DeepSeekClient struct {
 
 // NewDeepSeekClient creates a new DeepSeek API client
 func NewDeepSeekClient(apiKey, model string, temperature float64, maxTokens int) *DeepSeekClient {
-	transport := &http.Transport{
+    transport := &http.Transport{
 		MaxIdleConns:        10,               // Maximum idle connections to keep
 		MaxIdleConnsPerHost: 10,               // Maximum idle connections per host
 		IdleConnTimeout:     90 * time.Second, // How long to keep idle connections
@@ -57,23 +57,28 @@ func NewDeepSeekClient(apiKey, model string, temperature float64, maxTokens int)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	client := &DeepSeekClient{
+    client := &DeepSeekClient{
 		apiKey:      apiKey,
 		baseURL:     "https://api.deepseek.com",
 		model:       model,
 		temperature: temperature,
 		maxTokens:   maxTokens,
-		httpClient: &http.Client{
-			Timeout:   120 * time.Second,
-			Transport: transport,
-		},
+        httpClient: &http.Client{
+            Timeout:   180 * time.Second, // default timeout
+            Transport: transport,
+        },
 		maxRetries:   3,
 		baseDelay:    time.Second,
 		lastActivity: time.Now(),
 		transport:    transport,
 		ctx:          ctx,
 		cancel:       cancel,
-	}
+    }
+
+    // Reasoner can take longer; lift client timeout accordingly
+    if strings.EqualFold(model, "deepseek-reasoner") {
+        client.httpClient.Timeout = 300 * time.Second
+    }
 
 	// Start connection manager goroutine
 	go client.manageConnection()

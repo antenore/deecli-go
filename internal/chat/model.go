@@ -117,7 +117,7 @@ func initializeComponents(width, height int, client *api.Service, configManager 
 	renderer := ui.NewRenderer(configManager)
 	layoutManager := ui.NewLayout(configManager)
 	sidebar := ui.NewSidebar()
-	aiOperations := ai.NewOperations(client, fileCtx)
+	aiOperations := ai.NewOperations(client, fileCtx, configManager)
 
 	return fileCtx, completionEngine, renderer, layoutManager, sidebar, aiOperations, historyMgr, historyData
 }
@@ -478,26 +478,33 @@ func (m *NewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// Append chunk content
-		m.streamContent += msg.Content
+    // Append chunk content
+    m.streamContent += msg.Content
 
-		// Add assistant message on first content (when we actually have a response starting)
-		if msg.Content != "" && len(m.messages) > 0 {
-			// Check if we need to add the assistant message
-			lastMsg := m.messages[len(m.messages)-1]
-			if !strings.Contains(lastMsg, "DeeCLI:") && !strings.Contains(lastMsg, "assistant:") {
-				// Add the assistant message now that we have actual content
-				m.messages = append(m.messages, m.renderer.FormatMessage("assistant", ""))
-			}
-		}
+    // Compute trimmed accumulated length once
+    trimmedLen := len(strings.TrimSpace(m.streamContent))
 
-		// Stop spinner only when we have accumulated meaningful AI content
-		// This ensures the spinner stays visible during the "thinking" phase
-		if m.isLoading && len(strings.TrimSpace(m.streamContent)) >= 10 {
-			if cmd := m.setLoading(false, ""); cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-		}
+    // Add assistant message only when we have visible (non-whitespace) content
+    if trimmedLen > 0 && len(m.messages) > 0 {
+        // Check if we need to add the assistant message
+        lastMsg := m.messages[len(m.messages)-1]
+        if !strings.Contains(lastMsg, "DeeCLI:") && !strings.Contains(lastMsg, "assistant:") {
+            // Add the assistant message now that we have actual content
+            m.messages = append(m.messages, m.renderer.FormatMessage("assistant", ""))
+            // Keep message manager in sync to avoid losing this message on refresh
+            if m.messageManager != nil {
+                m.messageManager.SetMessages(m.messages)
+            }
+        }
+    }
+
+    // Stop spinner only when we have enough meaningful content
+    // Increase threshold to avoid early stop on tiny tokens
+    if m.isLoading && trimmedLen >= 64 {
+        if cmd := m.setLoading(false, ""); cmd != nil {
+            cmds = append(cmds, cmd)
+        }
+    }
 
 		// Update the display with accumulated content
 		m.updateStreamingDisplay(m.streamContent)
@@ -882,9 +889,13 @@ func (m *NewModel) updateStreamingDisplay(content string) {
 		return
 	}
 
-	// Update the last message (which should be our streaming assistant message)
-	lastIdx := len(m.messages) - 1
-	m.messages[lastIdx] = m.renderer.FormatMessage("assistant", content)
+    // Update the last message (which should be our streaming assistant message)
+    lastIdx := len(m.messages) - 1
+    m.messages[lastIdx] = m.renderer.FormatMessage("assistant", content)
+    // Keep message manager in sync so future refreshes don't lose content
+    if m.messageManager != nil {
+        m.messageManager.SetMessages(m.messages)
+    }
 
 	// Update viewport content
 	m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
@@ -909,15 +920,50 @@ func (m *NewModel) callAPI(contextPrompt, userInput string) tea.Cmd {
 		}
 	}
 
-	// Use streaming if enabled
-	if m.streamingEnabled {
+	// Check if context is too large for reliable streaming
+	contextSize := len(contextPrompt) + len(userInput)
+
+	// Get max context size and max tokens from config
+	maxContextSize := 50000
+	maxTokens := 2048
+	if m.configManager != nil {
+		cfg := m.configManager.Get()
+		if cfg.MaxContextSize > 0 {
+			maxContextSize = cfg.MaxContextSize
+		}
+		if cfg.MaxTokens > 0 {
+			maxTokens = cfg.MaxTokens
+		}
+	}
+
+	// Estimate tokens (rough approximation: 1 token ≈ 4 characters)
+	contextTokens := contextSize / 4
+	totalTokens := contextTokens + maxTokens
+
+	// DeepSeek models have ~128K token limit, leave safety margin
+	const modelTokenLimit = 120000
+	if totalTokens > modelTokenLimit {
+		return func() tea.Msg {
+			return ai.APIResponseMsg{
+				Err: fmt.Errorf("context + max_tokens (%d tokens) exceeds model limit (%d)\n\nContext: ~%d tokens, Max tokens: %d\n\nTry loading fewer files or reducing max_tokens setting",
+					totalTokens, modelTokenLimit, contextTokens, maxTokens),
+			}
+		}
+	}
+
+    // Use streaming threshold based on configured MaxContextSize
+    // Stream for any context under the configured limit
+    streamingThreshold := maxContextSize
+
+    // Use streaming when enabled and total context is under the configured threshold
+    if m.streamingEnabled && contextSize < streamingThreshold {
 		cmd := m.aiOperations.CallAPIStream(contextPrompt, userInput)
 		// Store the cancel function
 		m.apiCancel = m.aiOperations.GetAPICancel()
 		return cmd
 	}
 
-	// Fall back to non-streaming
+	// Use non-streaming for large contexts or when streaming is disabled
 	cmd := m.aiOperations.CallAPI(contextPrompt, userInput)
 	// Store the cancel function
 	m.apiCancel = m.aiOperations.GetAPICancel()
@@ -1028,6 +1074,10 @@ func (m *NewModel) handleStreamComplete(content string, err error) {
 		if len(m.messages) > 0 {
 			lastIdx := len(m.messages) - 1
 			m.messages[lastIdx] = m.renderer.FormatMessage("assistant", content)
+			// Sync message manager before updating viewport
+			if m.messageManager != nil {
+				m.messageManager.SetMessages(m.messages)
+			}
 			m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
 		}
 
@@ -1064,4 +1114,3 @@ func (m *NewModel) loadPreviousSession() error {
 
 	return nil
 }
-

@@ -42,37 +42,35 @@ type LoadedFile struct {
 }
 
 func (fl *FileLoader) LoadFiles(patterns []string) ([]LoadedFile, error) {
-	var files []LoadedFile
-	seenPaths := make(map[string]bool)
-
+	// First, expand all patterns and collect unique paths
+	allPaths := make(map[string]bool)
 	for _, pattern := range patterns {
 		matches, err := fl.expandPattern(pattern)
 		if err != nil {
 			return nil, fmt.Errorf("error expanding pattern %s: %w", pattern, err)
 		}
-
 		for _, path := range matches {
 			absPath, err := filepath.Abs(path)
 			if err != nil {
 				continue
 			}
-
-			if seenPaths[absPath] {
-				continue
-			}
-			seenPaths[absPath] = true
-
-			if len(files) >= fl.MaxFiles {
-				return files, fmt.Errorf("maximum file limit (%d) reached", fl.MaxFiles)
-			}
-
-			file, err := fl.loadSingleFile(absPath)
-			if err != nil {
-				return nil, fmt.Errorf("error loading %s: %w", path, err)
-			}
-
-			files = append(files, file)
+			allPaths[absPath] = true
 		}
+	}
+
+	// Check if we would exceed the file limit
+	if len(allPaths) > fl.MaxFiles {
+		return nil, fmt.Errorf("pattern matches %d files, exceeds maximum limit of %d", len(allPaths), fl.MaxFiles)
+	}
+
+	// Now load all the files
+	var files []LoadedFile
+	for absPath := range allPaths {
+		file, err := fl.loadSingleFile(absPath)
+		if err != nil {
+			return nil, fmt.Errorf("error loading %s: %w", absPath, err)
+		}
+		files = append(files, file)
 	}
 
 	return files, nil

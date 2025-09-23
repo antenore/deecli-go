@@ -76,6 +76,27 @@ func (fc *FileContext) LoadFiles(patterns []string) error {
 		return err
 	}
 
+	// First, check if we can load all files without exceeding the limit
+	newFilesCount := 0
+	for _, file := range files {
+		exists := false
+		for _, f := range fc.Files {
+			if f.Path == file.Path {
+				exists = true
+				break
+			}
+		}
+		if !exists {
+			newFilesCount++
+		}
+	}
+
+	if len(fc.Files)+newFilesCount > fc.MaxContext {
+		return fmt.Errorf("cannot load %d files: would exceed context limit of %d files (currently have %d)",
+			newFilesCount, fc.MaxContext, len(fc.Files))
+	}
+
+	// Now actually load the files since we know they'll all fit
 	for _, file := range files {
 		exists := false
 		for i, f := range fc.Files {
@@ -87,9 +108,6 @@ func (fc *FileContext) LoadFiles(patterns []string) error {
 		}
 
 		if !exists {
-			if len(fc.Files) >= fc.MaxContext {
-				return fmt.Errorf("context limit reached (%d files)", fc.MaxContext)
-			}
 			fc.Files = append(fc.Files, file)
 		}
 
@@ -162,7 +180,16 @@ func (fc *FileContext) GetContextSize() int64 {
 	return total
 }
 
+func (fc *FileContext) GetFormattedContextSize() int {
+	return len(fc.BuildContextPrompt())
+}
+
 func (fc *FileContext) BuildContextPrompt() string {
+	return fc.BuildContextPromptWithLimit(0) // 0 means no limit
+}
+
+// BuildContextPromptWithLimit builds context prompt with optional size limit for truncation
+func (fc *FileContext) BuildContextPromptWithLimit(maxSize int) string {
 	if len(fc.Files) == 0 {
 		return ""
 	}
@@ -170,16 +197,68 @@ func (fc *FileContext) BuildContextPrompt() string {
 	var prompt strings.Builder
 	prompt.WriteString("I have the following files loaded for context:\n\n")
 
-	for _, file := range fc.Files {
-		prompt.WriteString(fmt.Sprintf("=== File: %s (%s) ===\n", file.RelPath, file.Language))
-		prompt.WriteString("```")
-		if file.Language != "text" {
-			prompt.WriteString(file.Language)
+	// If no limit specified, use the original behavior
+	if maxSize == 0 {
+		for _, file := range fc.Files {
+			fc.appendFileContent(&prompt, file, false)
+
+			// Show full content
+			cleanContent := fc.cleanupContentForContext(file.Content)
+			prompt.WriteString(cleanContent)
+
+			if !strings.HasSuffix(cleanContent, "\n") {
+				prompt.WriteString("\n")
+			}
+			prompt.WriteString("```\n\n")
 		}
-		prompt.WriteString("\n")
-		prompt.WriteString(file.Content)
-		if !strings.HasSuffix(file.Content, "\n") {
-			prompt.WriteString("\n")
+		return prompt.String()
+	}
+
+	// Smart truncation when size limit is specified
+	const headerOverhead = 200 // Approximate overhead per file header
+	remainingSize := maxSize - len("I have the following files loaded for context:\n\n")
+
+	// Reserve space for file headers first
+	contentBudget := remainingSize - (len(fc.Files) * headerOverhead)
+	if contentBudget < 1000 {
+		// If budget is too small, show file list only
+		prompt.WriteString("Files loaded (content truncated due to size limits):\n")
+		for _, file := range fc.Files {
+			prompt.WriteString(fmt.Sprintf("- %s (%s, %d bytes)\n", file.RelPath, file.Language, file.Size))
+		}
+		return prompt.String()
+	}
+
+	// Distribute content budget across files (larger files get proportionally more space)
+	totalSize := fc.GetContextSize()
+	for _, file := range fc.Files {
+		// Calculate this file's share of the budget
+		fileShare := float64(file.Size) / float64(totalSize)
+		fileContentBudget := int(fileShare * float64(contentBudget))
+
+		// Minimum 500 chars per file, maximum based on share
+		if fileContentBudget < 500 {
+			fileContentBudget = 500
+		}
+
+		truncated := len(file.Content) > fileContentBudget
+		fc.appendFileContent(&prompt, file, truncated)
+
+		if truncated {
+			// Show truncated content
+			cleanContent := fc.cleanupContentForContext(file.Content[:fileContentBudget])
+			prompt.WriteString(cleanContent)
+			if !strings.HasSuffix(cleanContent, "\n") {
+				prompt.WriteString("\n")
+			}
+			prompt.WriteString(fmt.Sprintf("... [TRUNCATED - showing %d/%d chars] ...\n", fileContentBudget, len(file.Content)))
+		} else {
+			// Show full content
+			cleanContent := fc.cleanupContentForContext(file.Content)
+			prompt.WriteString(cleanContent)
+			if !strings.HasSuffix(cleanContent, "\n") {
+				prompt.WriteString("\n")
+			}
 		}
 		prompt.WriteString("```\n\n")
 	}
@@ -187,8 +266,58 @@ func (fc *FileContext) BuildContextPrompt() string {
 	return prompt.String()
 }
 
+// appendFileContent adds file header and content setup
+func (fc *FileContext) appendFileContent(prompt *strings.Builder, file LoadedFile, truncated bool) {
+	truncatedNote := ""
+	if truncated {
+		truncatedNote = " [TRUNCATED]"
+	}
+	prompt.WriteString(fmt.Sprintf("=== File: %s (%s)%s ===\n", file.RelPath, file.Language, truncatedNote))
+	prompt.WriteString("```")
+	if file.Language != "text" {
+		prompt.WriteString(file.Language)
+	}
+	prompt.WriteString("\n")
+}
+
+// cleanupContentForContext performs basic cleanup to reduce context size
+func (fc *FileContext) cleanupContentForContext(content string) string {
+	lines := strings.Split(content, "\n")
+	var cleanedLines []string
+
+	for _, line := range lines {
+		// Skip empty lines (keeps one empty line max)
+		if strings.TrimSpace(line) == "" {
+			if len(cleanedLines) > 0 && cleanedLines[len(cleanedLines)-1] != "" {
+				cleanedLines = append(cleanedLines, "")
+			}
+			continue
+		}
+
+		// Remove excessive leading whitespace but preserve indentation structure
+		trimmed := strings.TrimLeft(line, " \t")
+		if trimmed != line {
+			// Keep minimal indentation (max 4 spaces per level)
+			indent := len(line) - len(trimmed)
+			if indent > 16 { // Cap at 4 levels of indentation
+				indent = 16
+			}
+			line = strings.Repeat(" ", indent) + trimmed
+		}
+
+		cleanedLines = append(cleanedLines, line)
+	}
+
+	return strings.Join(cleanedLines, "\n")
+}
+
 func (fc *FileContext) GetInfo() string {
-	return fc.Loader.GetFilesInfo(fc.Files)
+	info := fc.Loader.GetFilesInfo(fc.Files)
+	formattedSize := fc.GetFormattedContextSize()
+	rawSize := fc.GetContextSize()
+
+	return fmt.Sprintf("%s\n\nRaw size: %d bytes, Formatted size: %d bytes",
+		info, rawSize, formattedSize)
 }
 
 // ReloadFiles reloads files from disk, updating cached content

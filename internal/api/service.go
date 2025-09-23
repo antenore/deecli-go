@@ -75,16 +75,18 @@ Provide clear, actionable advice and explanations.`,
 
 	messages = append(messages, conversationHistory...)
 
-	var userContent string
+	// Add file context as separate system message for better conversation structure
 	if contextPrompt != "" {
-		userContent = fmt.Sprintf("%s\n\n%s", contextPrompt, userMessage)
-	} else {
-		userContent = userMessage
+		messages = append(messages, Message{
+			Role:    "system",
+			Content: fmt.Sprintf("Files Context:\n%s", contextPrompt),
+		})
 	}
 
+	// Add user message separately
 	messages = append(messages, Message{
 		Role:    "user",
-		Content: userContent,
+		Content: userMessage,
 	})
 
 	return s.client.SendChatRequest(ctx, messages)
@@ -256,16 +258,18 @@ Provide clear, actionable advice and explanations.`,
 
 	messages = append(messages, conversationHistory...)
 
-	var userContent string
+	// Add file context as separate system message for better conversation structure
 	if contextPrompt != "" {
-		userContent = fmt.Sprintf("%s\n\n%s", contextPrompt, userMessage)
-	} else {
-		userContent = userMessage
+		messages = append(messages, Message{
+			Role:    "system",
+			Content: fmt.Sprintf("Files Context:\n%s", contextPrompt),
+		})
 	}
 
+	// Add user message separately
 	messages = append(messages, Message{
 		Role:    "user",
-		Content: userContent,
+		Content: userMessage,
 	})
 
 	return s.client.SendChatRequestStream(ctx, messages)

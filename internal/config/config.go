@@ -37,6 +37,7 @@ type Config struct {
 	AutoReloadFiles  bool               `yaml:"auto_reload_files,omitempty"`     // Enable file auto-reload
 	AutoReloadDebounce int              `yaml:"auto_reload_debounce,omitempty"`  // Debounce time in ms
 	ShowReloadNotices  bool             `yaml:"show_reload_notices,omitempty"`   // Show reload notifications
+	MaxContextSize   int                `yaml:"max_context_size,omitempty"`      // Max formatted context size in bytes
 }
 
 type Profile struct {
@@ -56,6 +57,7 @@ var (
 		AutoReloadFiles:  true,
 		AutoReloadDebounce: 100,
 		ShowReloadNotices: true,
+		MaxContextSize:   100000, // 100KB formatted context limit
 	}
 )
 
