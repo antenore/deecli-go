@@ -23,11 +23,12 @@ Focus: Keep It Simple (KISS) and SOLID. Ship a fast, reliable TUI first; advance
   - Deprecated `/add` command (kept for backward compatibility)
   - TODO: Respect `.gitignore` by default with `--all` flag to override
   - TODO: Smart pattern loading that excludes build artifacts (node_modules, target/, dist/, etc.)
-- Terminal-Friendly Output Formatting
-  - Clean code block formatting with clear boundaries for easy terminal selection
-  - Syntax highlighting where possible without breaking selectability
-  - Proper spacing and indentation preservation
-  - Remove formatting that interferes with terminal copy/paste workflow
+- ✅ Terminal-Friendly Output Formatting (FIXED)
+  - RAW code by default - instantly copyable without any borders
+  - F3 toggles formatting for new messages (raw vs bordered)
+  - Fixed /edit instruction file to strip box-drawing characters
+  - Configuration options: syntax_highlight and code_block_style in config.yaml
+  - KISS: Prioritized copying over pretty formatting
 - Basic File Operations
   - `/edit <file>:line` support if editor supports it
   - Better error messages for file operations with suggested fixes
@@ -58,6 +59,7 @@ Focus: Keep It Simple (KISS) and SOLID. Ship a fast, reliable TUI first; advance
 - Advanced configuration correctness (single source of truth, predictable behavior)
 
 ## Done Recently
+- ✅ **Terminal-Friendly Output Formatting** - RAW code by default for instant copying, F3 toggles formatting, KISS approach
 - ✅ **Streaming reliability FIX** - Eliminated empty assistant messages and improved content detection
 - ✅ **Context window management FIX** - Added comprehensive UI monitoring and smart truncation
 - ✅ **Multi-round conversation context bug FIX** - Files now remain accessible throughout conversations

@@ -66,7 +66,7 @@ func (l *Layout) CalculateTextareaWidth(terminalWidth int, sidebarVisible bool) 
 }
 
 // RenderHeader creates the application header with context information
-func (l *Layout) RenderHeader(filesCount int, focusMode string, fileContext *files.FileContext) string {
+func (l *Layout) RenderHeader(filesCount int, focusMode string, fileContext *files.FileContext, renderer *Renderer) string {
 	headerStyle := lipgloss.NewStyle().
 		Background(lipgloss.Color("62")).
 		Foreground(lipgloss.Color("230")).
@@ -128,8 +128,14 @@ func (l *Layout) RenderHeader(filesCount int, focusMode string, fileContext *fil
 		contextInfo = fmt.Sprintf(" | %s %s %.0f%%", indicator, sizeStr, usagePercent)
 	}
 
-	header := headerStyle.Render(fmt.Sprintf("DeeCLI | F: %d%s | NL: %s | F1 | F2 | Tab%s",
-		filesCount, contextInfo, newlineKeyDisplay, focusIndicator))
+	// Add raw mode indicator if renderer available
+	rawModeIndicator := ""
+	if renderer != nil && renderer.GetRawCodeMode() {
+		rawModeIndicator = " RAW"
+	}
+
+	header := headerStyle.Render(fmt.Sprintf("DeeCLI | F: %d%s | NL: %s | F1 | F2 | F3%s | Tab%s",
+		filesCount, contextInfo, newlineKeyDisplay, rawModeIndicator, focusIndicator))
 
 	return header
 }

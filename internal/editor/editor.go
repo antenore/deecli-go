@@ -234,12 +234,25 @@ func createInstructionFile(filepath string, messageProvider func() []string) str
 			if strings.Contains(msg, "DeeCLI:") || strings.Contains(msg, "assistant:") {
 				// Strip ANSI codes and clean up the content
 				cleanMsg := utils.StripANSI(msg)
-				// Trim trailing spaces from each line
-				lines := strings.Split(cleanMsg, "\n")
-				for j, line := range lines {
-					lines[j] = strings.TrimRight(line, " \t")
+
+				// Also remove box-drawing characters (common Unicode box chars)
+				boxChars := []string{"┌", "─", "┐", "│", "└", "┘", "├", "┤", "┬", "┴", "┼"}
+				for _, char := range boxChars {
+					cleanMsg = strings.ReplaceAll(cleanMsg, char, "")
 				}
-				cleanMsg = strings.Join(lines, "\n")
+
+				// Clean up resulting multiple spaces and empty lines
+				lines := strings.Split(cleanMsg, "\n")
+				var cleanLines []string
+				for _, line := range lines {
+					// Trim spaces and check if line has content
+					trimmed := strings.TrimSpace(line)
+					if trimmed != "" {
+						cleanLines = append(cleanLines, trimmed)
+					}
+				}
+				cleanMsg = strings.Join(cleanLines, "\n")
+
 				instructions += "```\n"
 				instructions += cleanMsg + "\n"
 				instructions += "```\n\n"

@@ -38,6 +38,8 @@ type Config struct {
 	AutoReloadDebounce int              `yaml:"auto_reload_debounce,omitempty"`  // Debounce time in ms
 	ShowReloadNotices  bool             `yaml:"show_reload_notices,omitempty"`   // Show reload notifications
 	MaxContextSize   int                `yaml:"max_context_size,omitempty"`      // Max formatted context size in bytes
+	SyntaxHighlight  bool               `yaml:"syntax_highlight,omitempty"`      // Enable syntax highlighting in code blocks
+	CodeBlockStyle   string             `yaml:"code_block_style,omitempty"`      // Style for code blocks: "bordered" or "simple"
 }
 
 type Profile struct {
@@ -58,6 +60,8 @@ var (
 		AutoReloadDebounce: 100,
 		ShowReloadNotices: true,
 		MaxContextSize:   100000, // 100KB formatted context limit
+		SyntaxHighlight:  false,  // Disable syntax highlighting by default for better copying
+		CodeBlockStyle:   "simple", // Use simple style by default for easy copying
 	}
 )
 
@@ -176,6 +180,11 @@ func (m *Manager) mergeConfigs() *Config {
 			merged.AutoReloadDebounce = m.globalConfig.AutoReloadDebounce
 		}
 		merged.ShowReloadNotices = m.globalConfig.ShowReloadNotices
+		// Formatting settings
+		merged.SyntaxHighlight = m.globalConfig.SyntaxHighlight
+		if m.globalConfig.CodeBlockStyle != "" {
+			merged.CodeBlockStyle = m.globalConfig.CodeBlockStyle
+		}
 	}
 
 	// Apply project config (higher priority)
@@ -204,6 +213,11 @@ func (m *Manager) mergeConfigs() *Config {
 			merged.AutoReloadDebounce = m.projectConfig.AutoReloadDebounce
 		}
 		merged.ShowReloadNotices = m.projectConfig.ShowReloadNotices
+		// Formatting settings from project config
+		merged.SyntaxHighlight = m.projectConfig.SyntaxHighlight
+		if m.projectConfig.CodeBlockStyle != "" {
+			merged.CodeBlockStyle = m.projectConfig.CodeBlockStyle
+		}
 		// Merge profiles
 		for name, profile := range m.projectConfig.Profiles {
 			merged.Profiles[name] = profile
@@ -426,6 +440,38 @@ func (m *Manager) SetKeyBinding(keyType, key string) error {
 	default:
 		return fmt.Errorf("unknown key type: %s", keyType)
 	}
+	return m.SaveGlobal(cfg)
+}
+
+// GetSyntaxHighlightEnabled returns whether syntax highlighting is enabled
+func (m *Manager) GetSyntaxHighlightEnabled() bool {
+	cfg := m.Get()
+	return cfg.SyntaxHighlight
+}
+
+// SetSyntaxHighlightEnabled saves the syntax highlighting setting
+func (m *Manager) SetSyntaxHighlightEnabled(enabled bool) error {
+	cfg := m.Get()
+	cfg.SyntaxHighlight = enabled
+	return m.SaveGlobal(cfg)
+}
+
+// GetCodeBlockStyle returns the code block style ("bordered" or "simple")
+func (m *Manager) GetCodeBlockStyle() string {
+	cfg := m.Get()
+	if cfg.CodeBlockStyle == "" {
+		return "bordered"
+	}
+	return cfg.CodeBlockStyle
+}
+
+// SetCodeBlockStyle saves the code block style
+func (m *Manager) SetCodeBlockStyle(style string) error {
+	if style != "bordered" && style != "simple" {
+		return fmt.Errorf("invalid code block style: %s (must be 'bordered' or 'simple')", style)
+	}
+	cfg := m.Get()
+	cfg.CodeBlockStyle = style
 	return m.SaveGlobal(cfg)
 }
 

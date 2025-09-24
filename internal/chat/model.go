@@ -566,6 +566,19 @@ func (m *NewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.layout()
 			return m, nil
+		case "f3":
+			// Toggle raw code mode for easy copying
+			if m.renderer != nil {
+				isRaw := m.renderer.ToggleRawCodeMode()
+				// Note: This only affects NEW messages, not existing ones
+				// Show status message
+				statusMsg := "Code blocks: FORMATTED (with borders) - new messages only"
+				if isRaw {
+					statusMsg = "Code blocks: RAW (copy-friendly) - new messages only"
+				}
+				m.addSystemMessage(statusMsg)
+			}
+			return m, nil
 		// Removed ctrl+w interception - now it naturally deletes words in textarea
 		}
 
@@ -812,7 +825,7 @@ func (m NewModel) View() string {
 
 	// Build header using layout manager
 	filesCount := len(m.fileContext.Files)
-	header := m.layoutManager.RenderHeader(filesCount, m.focusMode, m.fileContext)
+	header := m.layoutManager.RenderHeader(filesCount, m.focusMode, m.fileContext, m.renderer)
 
 	// Build main content area using layout manager
 	chatContent := m.viewport.View()
@@ -897,6 +910,19 @@ func (m *NewModel) updateStreamingDisplay(content string) {
 	m.viewport.GotoBottom()
 }
 
+
+// addSystemMessage adds a temporary system message to the viewport
+func (m *NewModel) addSystemMessage(message string) {
+	// Format as system message
+	formatted := m.renderer.FormatMessage("system", message)
+
+	// Add to messages temporarily (not saved to API messages)
+	m.messages = append(m.messages, formatted)
+
+	// Update viewport
+	m.viewport.SetContent(strings.Join(m.messages, "\n\n"))
+	m.viewport.GotoBottom()
+}
 
 // Command handling and async functions (keeping the same logic)
 func (m *NewModel) handleCommand(input string) tea.Cmd {

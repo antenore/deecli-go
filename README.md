@@ -44,6 +44,7 @@ export DEEPSEEK_API_KEY='your-key-here'
 **Function Keys**:
 - `F1` - Toggle help
 - `F2` - Toggle files sidebar
+- `F3` - Toggle code formatting (raw/bordered) for new messages
 
 **Focus & Navigation**:
 - `Esc` / `Enter` - Return to input mode from any pane
@@ -120,6 +121,8 @@ All commands start with `/` and support tab completion:
 - Multi-line input support
 - Scrollable chat history
 - File sidebar with loaded files
+- Terminal-friendly code output (raw by default for easy copying)
+- Optional syntax highlighting and bordered code blocks
 
 ### File handling
 - Load files with patterns: `*.go`, `**/*.go`, `{*.go,*.md}`
