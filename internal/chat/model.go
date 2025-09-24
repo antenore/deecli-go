@@ -458,69 +458,45 @@ func (m *NewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleAPIResponse(msg.Response, msg.Err)
 
 	case ai.StreamStartedMsg:
-		// Stream has started, save the reader and start reading chunks
-		m.streamReader = msg.Stream
-		m.streamContent = ""
+		// Use streaming manager to handle stream start
 		if cmd := m.setLoading(true, "Thinking..."); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
-		// Don't add assistant message yet - wait for actual content
-		// Keep showing "Thinking..." until we get real AI response
 		m.refreshViewport()
-		// Start reading the first chunk
-		return m, ai.ReadNextChunk(msg.Stream, m.streamContent)
+		// Let streaming manager handle the stream start
+		nextCmd := m.streamingManager.StartStream(msg, m.renderer, &m.messages)
+		return m, nextCmd
 
 	case ai.StreamChunkMsg:
-		// Handle incoming chunk
-		if msg.Err != nil {
-			m.handleStreamComplete(m.streamContent, msg.Err)
-			return m, nil
+		// Use streaming manager to handle chunk processing
+		nextCmd, extraCmds := m.streamingManager.HandleChunk(msg, m.spinner, &m.isLoading, m.setLoading)
+		if extraCmds != nil {
+			cmds = append(cmds, extraCmds...)
+		}
+		if nextCmd != nil {
+			cmds = append(cmds, nextCmd)
 		}
 
-    // Append chunk content
-    m.streamContent += msg.Content
+		// Update display with current streaming content
+		m.streamingManager.UpdateDisplay(m.streamingManager.GetStreamContent(), m.renderer, &m.messages, &m.viewport)
 
-    // Compute trimmed accumulated length once
-    trimmedLen := len(strings.TrimSpace(m.streamContent))
+		// Keep message manager in sync
+		if m.messageManager != nil {
+			m.messageManager.SetMessages(m.messages)
+		}
 
-    // Add assistant message only when we have visible (non-whitespace) content
-    if trimmedLen > 0 && len(m.messages) > 0 {
-        // Check if we need to add the assistant message
-        lastMsg := m.messages[len(m.messages)-1]
-        if !strings.Contains(lastMsg, "DeeCLI:") && !strings.Contains(lastMsg, "assistant:") {
-            // Add the assistant message now that we have actual content
-            m.messages = append(m.messages, m.renderer.FormatMessage("assistant", ""))
-            // Keep message manager in sync to avoid losing this message on refresh
-            if m.messageManager != nil {
-                m.messageManager.SetMessages(m.messages)
-            }
-        }
-    }
-
-    // Stop spinner only when we have enough meaningful content
-    // Increase threshold to avoid early stop on tiny tokens
-    if m.isLoading && trimmedLen >= 64 {
-        if cmd := m.setLoading(false, ""); cmd != nil {
-            cmds = append(cmds, cmd)
-        }
-    }
-
-		// Update the display with accumulated content
-		m.updateStreamingDisplay(m.streamContent)
-
-		// Continue reading next chunk
-		if m.streamReader != nil {
-			nextCmd := ai.ReadNextChunk(m.streamReader, m.streamContent)
-			if len(cmds) > 0 {
-				cmds = append(cmds, nextCmd)
-				return m, tea.Batch(cmds...)
-			}
-			return m, nextCmd
+		if len(cmds) > 0 {
+			return m, tea.Batch(cmds...)
 		}
 
 	case ai.StreamCompleteMsg:
-		// Stream completed
-		m.handleStreamComplete(msg.TotalContent, msg.Err)
+		// Use streaming manager to handle completion
+		completionCmd := m.streamingManager.CompleteStream(msg)
+		return m, completionCmd
+
+	case streaming.StreamCompleteInternalMsg:
+		// Handle streaming completion from streaming manager
+		m.handleStreamCompleteInternal(msg)
 
 	case editor.EditorFinishedMsg:
 		if msg.Error != nil {
@@ -1064,7 +1040,51 @@ func (m *NewModel) handleAPIResponse(response string, err error) {
 	m.viewport.GotoBottom()
 }
 
-// updateStreamingDisplay updates the display with streaming content
+// handleStreamCompleteInternal handles completion from streaming manager
+func (m *NewModel) handleStreamCompleteInternal(msg streaming.StreamCompleteInternalMsg) {
+	m.setLoading(false, "")
+	m.apiCancel = nil
+
+	// Clean up old streaming state
+	m.streamReader = nil
+	m.streamContent = ""
+
+	if msg.Err != nil {
+		// Handle error cases
+		if apiErr, ok := msg.Err.(api.APIError); ok {
+			if apiErr.Message != "request cancelled by user" {
+				errorMsg := fmt.Sprintf("❌ %s", apiErr.UserMessage)
+				if apiErr.StatusCode > 0 {
+					errorMsg += fmt.Sprintf(" (HTTP %d)", apiErr.StatusCode)
+				}
+				m.addMessage("system", errorMsg)
+			}
+		} else if msg.Err != context.Canceled {
+			m.addMessage("system", fmt.Sprintf("❌ Error: %v", msg.Err))
+		}
+	} else if msg.Content != "" {
+		// Handle successful completion
+		// If no message was added during streaming (no meaningful content), add it now
+		if !msg.MessageAdded && msg.FinalContent != "" {
+			m.addMessage("assistant", msg.FinalContent)
+		}
+
+		// Track files mentioned in response
+		if m.fileTracker != nil {
+			m.fileTracker.ExtractFilesFromResponseWithContext(msg.Content, m.fileContext.Files)
+		}
+
+		// Add to API messages for history
+		m.apiMessages = append(m.apiMessages, api.Message{
+			Role:    "assistant",
+			Content: msg.Content,
+		})
+	}
+
+	// Ensure viewport is up to date
+	m.viewport.GotoBottom()
+}
+
 // Following the official Bubbletea chat example pattern
 // handleStreamComplete handles the completion of a stream
 func (m *NewModel) handleStreamComplete(content string, err error) {

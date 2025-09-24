@@ -37,6 +37,9 @@ func (fc *FileCommands) Load(args []string) tea.Cmd {
 		return nil
 	}
 
+	// Clear existing file context first
+	fc.deps.FileContext.Clear()
+
 	patterns := args
 	err := fc.deps.FileContext.LoadFiles(patterns)
 	if err != nil {

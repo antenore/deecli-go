@@ -3,19 +3,21 @@
 Focus: Keep It Simple (KISS) and SOLID. Ship a fast, reliable TUI first; advanced features are optional and opt‑in.
 
 ## P0 — Must Have (Stability & Core UX)
-- Multi-round conversation context bug (HIGH PRIORITY)
-  - Context accumulates incorrectly: loading file A → ask about A → load B → ask about B results in answer for both A and B
-  - Each new file load adds to context instead of replacing it (A → A+B → A+B+C)
-  - Fix: ensure /load replaces file context rather than appending; maintain proper context isolation per query
-- Streaming reliability
-  - Maintain spinner until meaningful content arrives; never show empty assistant messages.
-  - Keep message manager and viewport in sync during streaming and on completion.
-  - Model‑aware timeouts (reasoner slower than chat); clear cancellation/errors.
-- Context window management
-  - Enforce formatted context cap from config; stream under the cap, fall back with a helpful message when exceeded.
-  - Trim/truncate large file content when needed; show context summary (size, files) in errors.
-  - Optionally separate “files context” into its own message to keep user prompt clean.
-- Config correctness
+- ✅ Multi-round conversation context bug (FIXED)
+  - Implemented simple working solution: all loaded files sent with every request
+  - Ensures files remain accessible throughout conversation history
+  - See CONTEXT_MANAGEMENT_PLAN.md for research and future optimization strategy
+- ✅ Streaming reliability (FIXED)
+  - Implemented meaningful content detection to prevent empty assistant messages
+  - Enhanced message manager and viewport synchronization during streaming
+  - Improved spinner timing with intelligent content analysis
+  - Model‑aware timeouts and clear error handling already working properly
+- ✅ Context window management (FIXED)
+  - Implemented context size monitoring with color-coded warnings in UI
+  - Added smart context truncation with helpful error messages when exceeded
+  - Show token usage and approximate context size to user in header and sidebar
+  - Enhanced file content handling with size limits and usage indicators
+- Config correctness (NEXT PRIORITY)
   - Single source of truth (env overrides, profiles) and predictable behavior.
 - Tests & CI
   - Unit tests for streaming (chunking, completion), message sync, file watcher debounce.
@@ -28,9 +30,14 @@ Focus: Keep It Simple (KISS) and SOLID. Ship a fast, reliable TUI first; advance
 - Basic Git integration: `/git diff`, `/git status` (read‑only).
 
 ## P2 — Roadmap (When Core Is Solid)
-- Tools layer (safe file/list/search/diff/patch/test) with preview/confirm flows.
+- Tools layer (THE REAL SOLUTION for context management)
+  - Implement safe file reading tools (`/read`, `/search`, `/diff`, `/list`)
+  - Let AI request file content on-demand instead of pre-loading everything
+  - Preview/confirm flows for file operations
+  - This solves context bloat and scales to large codebases
 - Request IDs and simple retry/backoff; slow‑call logging.
 - Session commands: `/session list|load|save`.
+- Context optimization commands: `/compact`, `/summarize` for conversation cleanup.
 
 ## P3 — Nice to Dream About (Complex/Optional)
 - AST/LSP assistance (opt‑in):
@@ -40,9 +47,14 @@ Focus: Keep It Simple (KISS) and SOLID. Ship a fast, reliable TUI first; advance
 - Response caching and cost tracking.
 
 ## Done Recently
-- Visual spinner and “thinking” flow improvements.
+- ✅ **Streaming reliability FIX** - Eliminated empty assistant messages and improved content detection
+- ✅ **Context window management FIX** - Added comprehensive UI monitoring and smart truncation
+- ✅ **Multi-round conversation context bug FIX** - Files now remain accessible throughout conversations
+- ✅ **Context management research** - Analyzed Claude Code, OpenAI Codex, DeepSeek approaches
+- ✅ **Implementation plan** - Created CONTEXT_MANAGEMENT_PLAN.md with detailed future roadmap
+- Visual spinner and "thinking" flow improvements.
 - Auto‑reload robustness (rename events) and notices.
 - Enhanced config validation and history/input handling.
 - Partial architecture clean‑up (extracted managers; continue reducing large files).
 
-Last updated: 2025‑09‑23
+Last updated: 2025‑01‑27

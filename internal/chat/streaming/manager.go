@@ -15,6 +15,7 @@ package streaming
 
 import (
 	"strings"
+	"unicode"
 
 	"github.com/antenore/deecli/internal/ai"
 	"github.com/antenore/deecli/internal/api"
@@ -24,9 +25,10 @@ import (
 
 // Manager handles streaming operations and state
 type Manager struct {
-	streamReader  api.StreamReader
-	streamContent string
-	isActive      bool
+	streamReader         api.StreamReader
+	streamContent        string
+	isActive             bool
+	messageAdded         bool // Track if assistant message has been added yet
 }
 
 // NewManager creates a new streaming manager
@@ -34,6 +36,7 @@ func NewManager() *Manager {
 	return &Manager{
 		streamContent: "",
 		isActive:      false,
+		messageAdded:  false,
 	}
 }
 
@@ -42,11 +45,10 @@ func (sm *Manager) StartStream(msg ai.StreamStartedMsg, renderer interface{}, me
 	sm.streamReader = msg.Stream
 	sm.streamContent = ""
 	sm.isActive = true
+	sm.messageAdded = false
 
-	// Add initial placeholder assistant message - this will be updated during streaming
-	if r, ok := renderer.(interface{ FormatMessage(string, string) string }); ok {
-		*messages = append(*messages, r.FormatMessage("assistant", ""))
-	}
+	// Don't add assistant message yet - wait for meaningful content
+	// This prevents empty assistant messages from showing
 
 	// Start reading the first chunk
 	return ai.ReadNextChunk(msg.Stream, sm.streamContent)
@@ -66,7 +68,7 @@ func (sm *Manager) HandleChunk(msg ai.StreamChunkMsg, spinner *ui.Spinner, isLoa
 	// Stop spinner only when we have accumulated meaningful content
 	// This ensures the spinner stays visible during the "thinking" phase
 	// and initial token streaming before substantial text appears
-	if *isLoading && len(strings.TrimSpace(sm.streamContent)) >= 10 {
+	if *isLoading && sm.hasMeaningfulContent() {
 		if cmd := setLoadingFn(false, ""); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
@@ -94,39 +96,48 @@ func (sm *Manager) CompleteStream(msg ai.StreamCompleteMsg) tea.Cmd {
 func (sm *Manager) completeStream(content string, err error) tea.Cmd {
 	sm.isActive = false
 	sm.streamReader = nil
+	// Keep streamContent for final message processing
+	finalContent := sm.streamContent
 	sm.streamContent = ""
 
-	// Return completion message
+	// Return completion message with final content
 	return func() tea.Msg {
 		return StreamCompleteInternalMsg{
-			Content: content,
-			Err:     err,
+			Content:      content,
+			FinalContent: finalContent, // Include accumulated content for proper message sync
+			MessageAdded: sm.messageAdded, // Track if message was added during streaming
+			Err:          err,
 		}
 	}
 }
 
 // UpdateDisplay updates the streaming display with accumulated content
 func (sm *Manager) UpdateDisplay(content string, renderer interface{}, messages *[]string, viewport ViewportInterface) {
-	// Only update if we have messages (allow updates during entire streaming process)
-	if len(*messages) == 0 {
-		return
+	// Add assistant message only when we have meaningful content for the first time
+	if !sm.messageAdded && sm.hasMeaningfulContent() {
+		if r, ok := renderer.(interface{ FormatMessage(string, string) string }); ok {
+			*messages = append(*messages, r.FormatMessage("assistant", content))
+			sm.messageAdded = true
+		}
+	} else if sm.messageAdded && len(*messages) > 0 {
+		// Update the last message (which should be our streaming assistant message)
+		lastIdx := len(*messages) - 1
+		if r, ok := renderer.(interface{ FormatMessage(string, string) string }); ok {
+			(*messages)[lastIdx] = r.FormatMessage("assistant", content)
+		}
 	}
 
-	// Update the last message (which should be our streaming assistant message)
-	lastIdx := len(*messages) - 1
-	if r, ok := renderer.(interface{ FormatMessage(string, string) string }); ok {
-		(*messages)[lastIdx] = r.FormatMessage("assistant", content)
+	// Update viewport content only if we have messages
+	if len(*messages) > 0 {
+		viewport.SetContent(strings.Join(*messages, "\n\n"))
+		_ = viewport.GotoBottom() // Ignore return value
 	}
-
-	// Update viewport content
-	viewport.SetContent(strings.Join(*messages, "\n\n"))
-	viewport.GotoBottom()
 }
 
 // ViewportInterface defines required viewport methods
 type ViewportInterface interface {
 	SetContent(string)
-	GotoBottom()
+	GotoBottom() []string
 }
 
 // GetStreamContent returns the current accumulated stream content
@@ -153,14 +164,36 @@ func (sm *Manager) IsActive() bool {
 func (sm *Manager) Reset() {
 	sm.streamContent = ""
 	sm.isActive = false
+	sm.messageAdded = false
 	if sm.streamReader != nil {
 		sm.streamReader.Close()
 		sm.streamReader = nil
 	}
 }
 
+// hasMeaningfulContent checks if the content has substantial text (not just whitespace/tokens)
+func (sm *Manager) hasMeaningfulContent() bool {
+	trimmed := strings.TrimSpace(sm.streamContent)
+	if len(trimmed) < 5 {
+		return false // Too short to be meaningful
+	}
+
+	// Count actual letters and meaningful characters
+	letterCount := 0
+	for _, r := range trimmed {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			letterCount++
+		}
+	}
+
+	// Require at least 3 letters/digits and content longer than just tokens
+	return letterCount >= 3 && len(trimmed) >= 8
+}
+
 // StreamCompleteInternalMsg is used internally for stream completion
 type StreamCompleteInternalMsg struct {
-	Content string
-	Err     error
+	Content      string
+	FinalContent string // Final accumulated content from streaming
+	MessageAdded bool   // Whether assistant message was added during streaming
+	Err          error
 }
