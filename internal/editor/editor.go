@@ -37,19 +37,22 @@ type Config struct {
 
 // OpenFileWithInstructions opens a file in the editor with AI-generated instruction file
 func OpenFileWithInstructions(filepath string, config Config) tea.Cmd {
+	// Parse file:line format first
+	file, line := ParseFileAndLine(filepath)
+
 	// Create instruction file with context from last messages
-	instructionFile := createInstructionFile(filepath, config.MessageProvider)
-	
+	instructionFile := createInstructionFile(file, config.MessageProvider)
+
 	// Auto-create directories if they don't exist
-	if err := ensureDirectoryExists(filepath, config.MessageLogger); err != nil {
+	if err := ensureDirectoryExists(file, config.MessageLogger); err != nil {
 		config.MessageLogger("system", fmt.Sprintf("❌ Failed to create directory: %v", err))
 		return nil
 	}
-	
+
 	// Check if this is a new file creation
-	if _, err := os.Stat(filepath); os.IsNotExist(err) {
+	if _, err := os.Stat(file); os.IsNotExist(err) {
 		// Create the new file with basic template
-		createNewFileWithTemplate(filepath)
+		createNewFileWithTemplate(file)
 	}
 	
 	// Find editor with interactive fallback
@@ -68,19 +71,39 @@ func OpenFileWithInstructions(filepath string, config Config) tea.Cmd {
 	switch {
 	case strings.Contains(editorBase, "vim") || editorBase == "nvim":
 		// Vim/NVim: vertical split with target file on left, suggestions on right
-		c = exec.Command(editor, "-O", filepath, instructionFile)
+		if line > 0 {
+			c = exec.Command(editor, "-O", fmt.Sprintf("+%d", line), file, instructionFile)
+		} else {
+			c = exec.Command(editor, "-O", file, instructionFile)
+		}
 	case editorBase == "code":
 		// VSCode: open target file first, then suggestions
-		c = exec.Command(editor, filepath, instructionFile)
+		if line > 0 {
+			c = exec.Command(editor, "--goto", fmt.Sprintf("%s:%d", file, line), instructionFile)
+		} else {
+			c = exec.Command(editor, file, instructionFile)
+		}
 	case editorBase == "emacs":
 		// Emacs: open target file first, then suggestions
-		c = exec.Command(editor, filepath, instructionFile)
+		if line > 0 {
+			c = exec.Command(editor, fmt.Sprintf("+%d", line), file, instructionFile)
+		} else {
+			c = exec.Command(editor, file, instructionFile)
+		}
 	default:
 		// Other editors: target file first, suggestions second
-		c = exec.Command(editor, filepath, instructionFile)
+		if line > 0 {
+			c = exec.Command(editor, fmt.Sprintf("+%d", line), file, instructionFile)
+		} else {
+			c = exec.Command(editor, file, instructionFile)
+		}
 	}
-	
-	config.MessageLogger("system", fmt.Sprintf("📝 Opening %s with instructions in %s", filepath, editor))
+
+	if line > 0 {
+		config.MessageLogger("system", fmt.Sprintf("📝 Opening %s at line %d with instructions in %s", file, line, editor))
+	} else {
+		config.MessageLogger("system", fmt.Sprintf("📝 Opening %s with instructions in %s", file, editor))
+	}
 	
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		// Clean up instruction file
@@ -155,7 +178,7 @@ func CreateAndEditNewFile(filepath string, config Config) tea.Cmd {
 // OpenFile opens a file directly without instruction files (simple version)
 func OpenFile(filepath string, config Config) tea.Cmd {
 	// Parse file:line format
-	file, line := parseFileAndLine(filepath)
+	file, line := ParseFileAndLine(filepath)
 	
 	// Find editor
 	editor := findEditor(config.MessageLogger)
@@ -353,26 +376,36 @@ func ensureDirectoryExists(filepath string, messageLogger func(role, content str
 	return nil
 }
 
-// parseFileAndLine parses "file:line" format and returns file path and line number
-func parseFileAndLine(input string) (string, int) {
+// ParseFileAndLine parses "file:line" format and returns file path and line number
+func ParseFileAndLine(input string) (string, int) {
 	lastColon := strings.LastIndex(input, ":")
 	if lastColon == -1 {
 		return input, 0
 	}
-	
+
 	file := input[:lastColon]
 	lineStr := input[lastColon+1:]
-	
+
 	// Try to parse line number
 	var line int
-	fmt.Sscanf(lineStr, "%d", &line)
-	
-	// Check if the file part exists
-	if _, err := os.Stat(file); err == nil {
+	n, err := fmt.Sscanf(lineStr, "%d", &line)
+
+	// If we successfully parsed a line number, assume file:line format
+	if err == nil && n == 1 && line > 0 {
 		return file, line
 	}
-	
-	// File doesn't exist, maybe the colon is part of the filename
+
+	// If file exists and no valid line number, it's just a filename
+	if _, err := os.Stat(input); err == nil {
+		return input, 0
+	}
+
+	// Check if file part exists (for cases like existing.file:invalidline)
+	if _, err := os.Stat(file); err == nil {
+		return file, 0
+	}
+
+	// No valid line number and file doesn't exist - treat as filename
 	return input, 0
 }
 

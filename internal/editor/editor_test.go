@@ -48,8 +48,8 @@ func TestParseFileAndLine(t *testing.T) {
 		{
 			name:         "non-existent file with line number",
 			input:        "/nonexistent/file.go:123",
-			expectedFile: "/nonexistent/file.go:123",
-			expectedLine: 0,
+			expectedFile: "/nonexistent/file.go",
+			expectedLine: 123,
 		},
 		{
 			name:         "file with colon but no valid line",
@@ -58,16 +58,22 @@ func TestParseFileAndLine(t *testing.T) {
 			expectedLine: 0,
 		},
 		{
-			name:         "file with multiple colons",
+			name:         "file with multiple colons - should parse line number correctly",
 			input:        "/path/with:colon/file.go:100",
-			expectedFile: "/path/with:colon/file.go:100",
-			expectedLine: 0,
+			expectedFile: "/path/with:colon/file.go",
+			expectedLine: 100,
+		},
+		{
+			name:         "TODO.md with line number (reported bug)",
+			input:        "TODO.md:45",
+			expectedFile: "TODO.md",
+			expectedLine: 45,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			file, line := parseFileAndLine(tt.input)
+			file, line := ParseFileAndLine(tt.input)
 			if file != tt.expectedFile {
 				t.Errorf("parseFileAndLine(%q) file = %q, want %q", tt.input, file, tt.expectedFile)
 			}
