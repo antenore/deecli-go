@@ -29,10 +29,12 @@ Focus: Keep It Simple (KISS) and SOLID. Ship a fast, reliable TUI first; advance
   - Fixed /edit instruction file to strip box-drawing characters
   - Configuration options: syntax_highlight and code_block_style in config.yaml
   - KISS: Prioritized copying over pretty formatting
-- Basic File Operations
-  - `/edit <file>:line` support if editor supports it
-  - Better error messages for file operations with suggested fixes
-  - Validate file patterns before attempting to load
+- ✅ Basic File Operations (COMPLETED)
+  - ✅ `/edit <file>:line` support - fully working and documented
+  - ✅ Better error messages for file operations with suggested fixes
+  - ✅ Validate file patterns before attempting to load
+  - ✅ Basic .gitignore support with `--all` flag to override
+  - ✅ Refactored to use proven `go-gitignore` library (180+ lines → 15 lines)
 
 ## P1 — High‑Impact Developer Workflow (Small, Safe Wins)
 - Git integration: `/git diff`, `/git status` (read‑only commands)
@@ -59,6 +61,11 @@ Focus: Keep It Simple (KISS) and SOLID. Ship a fast, reliable TUI first; advance
 - Advanced configuration correctness (single source of truth, predictable behavior)
 
 ## Done Recently
+- ✅ **Basic File Operations COMPLETE** - All P0 file operation improvements shipped
+  - `/edit file:line` support with comprehensive testing and documentation
+  - Enhanced error messages with actionable suggestions for all file operations
+  - Pattern pre-validation to catch problematic patterns early with helpful guidance
+  - .gitignore support by default with `--all` flag override, using battle-tested `go-gitignore` library
 - ✅ **Terminal-Friendly Output Formatting** - RAW code by default for instant copying, F3 toggles formatting, KISS approach
 - ✅ **Streaming reliability FIX** - Eliminated empty assistant messages and improved content detection
 - ✅ **Context window management FIX** - Added comprehensive UI monitoring and smart truncation

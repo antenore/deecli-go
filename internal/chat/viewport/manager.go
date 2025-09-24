@@ -233,6 +233,7 @@ func (m *Manager) HelpContent() string {
 
 === Chat Commands ===
 /load <file>    Load files (additive - adds to existing)
+/load --all <file> Load files ignoring .gitignore
 /unload <pattern> Remove files matching pattern
 /add <file>     Same as /load (deprecated)
 /list           List all loaded files
@@ -242,6 +243,7 @@ func (m *Manager) HelpContent() string {
 /explain        Explain loaded code
 /edit           AI suggests which files to edit based on conversation
 /edit <file>    Open specific file in editor
+/edit <file:line> Jump to specific line in file
 /keysetup       Configure key bindings
 /history        View/manage command history
 /help           Show this help

@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/antenore/deecli/internal/files"
 )
 
 // FileCommands handles file-related chat commands
@@ -33,15 +34,34 @@ func NewFileCommands(deps Dependencies) *FileCommands {
 // Load handles the /load command - now additive by default
 func (fc *FileCommands) Load(args []string) tea.Cmd {
 	if len(args) < 1 {
-		fc.deps.MessageLogger("system", "Usage: /load <filepath>")
+		fc.deps.MessageLogger("system", "Usage: /load <filepath>. Examples: /load *.go, /load main.go, /load src/**/*.py")
+		fc.deps.MessageLogger("system", "Use --all flag to bypass .gitignore: /load --all *.js")
 		return nil
 	}
 
-	// /load is now additive by default - no longer clears existing files
+	// Check for --all flag
+	respectGitignore := true
 	patterns := args
+	if len(args) > 0 && args[0] == "--all" {
+		respectGitignore = false
+		patterns = args[1:]
+		if len(patterns) == 0 {
+			fc.deps.MessageLogger("system", "Usage: /load --all <filepath>. Examples: /load --all *.js, /load --all node_modules/**/*.js")
+			return nil
+		}
+	}
+
+	// Temporarily set a different loader if --all is specified
+	originalLoader := fc.deps.FileContext.Loader
+	if !respectGitignore {
+		fc.deps.FileContext.Loader = files.NewFileLoaderWithOptions(false)
+		defer func() { fc.deps.FileContext.Loader = originalLoader }()
+		fc.deps.MessageLogger("system", "Loading files with --all flag (ignoring .gitignore)")
+	}
+
 	err := fc.deps.FileContext.LoadFiles(patterns)
 	if err != nil {
-		fc.deps.MessageLogger("system", fmt.Sprintf("Error loading files: %v", err))
+		fc.deps.MessageLogger("system", fmt.Sprintf("❌ %v", err))
 	} else {
 		fc.deps.MessageLogger("system", fc.deps.FileContext.GetInfo())
 		fc.deps.RefreshUI()
@@ -52,14 +72,14 @@ func (fc *FileCommands) Load(args []string) tea.Cmd {
 // Add handles the /add command
 func (fc *FileCommands) Add(args []string) tea.Cmd {
 	if len(args) < 1 {
-		fc.deps.MessageLogger("system", "Usage: /add <filepath>")
+		fc.deps.MessageLogger("system", "Usage: /add <filepath>. Note: /add is deprecated, use /load instead. Examples: /load *.go")
 		return nil
 	}
 
 	patterns := args
 	err := fc.deps.FileContext.LoadFiles(patterns)
 	if err != nil {
-		fc.deps.MessageLogger("system", fmt.Sprintf("Error adding files: %v", err))
+		fc.deps.MessageLogger("system", fmt.Sprintf("❌ %v", err))
 	} else {
 		fc.deps.MessageLogger("system", fc.deps.FileContext.GetInfo())
 		fc.deps.RefreshUI()
@@ -70,7 +90,7 @@ func (fc *FileCommands) Add(args []string) tea.Cmd {
 // List handles the /list command
 func (fc *FileCommands) List(args []string) tea.Cmd {
 	if len(fc.deps.FileContext.Files) == 0 {
-		fc.deps.MessageLogger("system", "No files loaded")
+		fc.deps.MessageLogger("system", "No files loaded. Try: /load *.go or /load <filename>")
 	} else {
 		fc.deps.MessageLogger("system", fc.deps.FileContext.GetInfo())
 	}
@@ -88,18 +108,18 @@ func (fc *FileCommands) Clear(args []string) tea.Cmd {
 // Unload handles the /unload command for selective file removal
 func (fc *FileCommands) Unload(args []string) tea.Cmd {
 	if len(args) < 1 {
-		fc.deps.MessageLogger("system", "Usage: /unload <pattern>")
+		fc.deps.MessageLogger("system", "Usage: /unload <pattern>. Examples: /unload *.test.go, /unload temp, /unload *")
 		return nil
 	}
 
 	pattern := args[0]
 	removed := fc.deps.FileContext.UnloadFiles(pattern)
 	if removed > 0 {
-		fc.deps.MessageLogger("system", fmt.Sprintf("Removed %d file(s) matching '%s'", removed, pattern))
+		fc.deps.MessageLogger("system", fmt.Sprintf("✓ Removed %d file(s) matching '%s'", removed, pattern))
 		fc.deps.MessageLogger("system", fc.deps.FileContext.GetInfo())
 		fc.deps.RefreshUI()
 	} else {
-		fc.deps.MessageLogger("system", fmt.Sprintf("No files found matching pattern '%s'", pattern))
+		fc.deps.MessageLogger("system", fmt.Sprintf("No files found matching pattern '%s'. Use /list to see loaded files", pattern))
 	}
 	return nil
 }
@@ -119,9 +139,9 @@ func (fc *FileCommands) Reload(args []string) tea.Cmd {
 
 	if len(results) == 0 {
 		if len(patterns) == 0 {
-			fc.deps.MessageLogger("system", "No files loaded to reload")
+			fc.deps.MessageLogger("system", "No files loaded to reload. Use /load <files> first")
 		} else {
-			fc.deps.MessageLogger("system", "No matching loaded files found")
+			fc.deps.MessageLogger("system", fmt.Sprintf("No matching loaded files found for pattern: %s. Use /list to see loaded files", strings.Join(patterns, ", ")))
 		}
 		return nil
 	}

@@ -22,14 +22,21 @@ import (
 )
 
 type FileLoader struct {
-	MaxFileSize int64
-	MaxFiles    int
+	MaxFileSize     int64
+	MaxFiles        int
+	gitignoreFilter *GitignoreFilter
 }
 
 func NewFileLoader() *FileLoader {
+	return NewFileLoaderWithOptions(true) // Respect .gitignore by default
+}
+
+// NewFileLoaderWithOptions creates a FileLoader with gitignore options
+func NewFileLoaderWithOptions(respectGitignore bool) *FileLoader {
 	return &FileLoader{
-		MaxFileSize: 10 * 1024 * 1024, // 10MB default
-		MaxFiles:    100,
+		MaxFileSize:     10 * 1024 * 1024, // 10MB default
+		MaxFiles:        100,
+		gitignoreFilter: NewGitignoreFilter(respectGitignore),
 	}
 }
 
@@ -42,6 +49,13 @@ type LoadedFile struct {
 }
 
 func (fl *FileLoader) LoadFiles(patterns []string) ([]LoadedFile, error) {
+	// Validate patterns first
+	for _, pattern := range patterns {
+		if err := fl.validatePattern(pattern); err != nil {
+			return nil, err
+		}
+	}
+
 	// First, expand all patterns and collect unique paths
 	allPaths := make(map[string]bool)
 	for _, pattern := range patterns {
@@ -60,7 +74,7 @@ func (fl *FileLoader) LoadFiles(patterns []string) ([]LoadedFile, error) {
 
 	// Check if we would exceed the file limit
 	if len(allPaths) > fl.MaxFiles {
-		return nil, fmt.Errorf("pattern matches %d files, exceeds maximum limit of %d", len(allPaths), fl.MaxFiles)
+		return nil, fmt.Errorf("pattern matches %d files, exceeds maximum limit of %d. Use more specific patterns like '*.go' instead of '*'", len(allPaths), fl.MaxFiles)
 	}
 
 	// Now load all the files
@@ -88,19 +102,25 @@ func (fl *FileLoader) LoadFile(path string) (LoadedFile, error) {
 func (fl *FileLoader) loadSingleFile(absPath string) (LoadedFile, error) {
 	info, err := os.Stat(absPath)
 	if err != nil {
-		return LoadedFile{}, fmt.Errorf("file not found: %w", err)
+		relPath, _ := filepath.Rel(".", absPath)
+		return LoadedFile{}, fmt.Errorf("file not found: %s. Try: /load *.go or /list to see available files", relPath)
 	}
 
 	if info.IsDir() {
-		return LoadedFile{}, fmt.Errorf("path is a directory, not a file")
+		relPath, _ := filepath.Rel(".", absPath)
+		return LoadedFile{}, fmt.Errorf("'%s' is a directory, not a file. Try: /load %s/* or /load %s/**/*", relPath, relPath, relPath)
 	}
 
 	if info.Size() > fl.MaxFileSize {
-		return LoadedFile{}, fmt.Errorf("file too large: %d bytes (max: %d)", info.Size(), fl.MaxFileSize)
+		relPath, _ := filepath.Rel(".", absPath)
+		sizeMB := float64(info.Size()) / (1024 * 1024)
+		maxMB := float64(fl.MaxFileSize) / (1024 * 1024)
+		return LoadedFile{}, fmt.Errorf("file too large: %s (%.1fMB, max: %.0fMB). Use a text editor to view large files", relPath, sizeMB, maxMB)
 	}
 
 	if fl.isBinaryFile(absPath) {
-		return LoadedFile{}, fmt.Errorf("binary file detected, skipping")
+		relPath, _ := filepath.Rel(".", absPath)
+		return LoadedFile{}, fmt.Errorf("'%s' appears to be a binary file, skipping. Use /load <text_files> instead", relPath)
 	}
 
 	file, err := os.Open(absPath)
@@ -156,7 +176,7 @@ func (fl *FileLoader) expandPattern(pattern string) ([]string, error) {
 		if _, err := os.Stat(pattern); err == nil {
 			return []string{pattern}, nil
 		}
-		return nil, fmt.Errorf("no files matching pattern: %s", pattern)
+		return nil, fmt.Errorf("no files matching: %s. Try: /load *.* for all files, or /load *.go for Go files", pattern)
 	}
 
 	var files []string
@@ -165,7 +185,7 @@ func (fl *FileLoader) expandPattern(pattern string) ([]string, error) {
 		if err != nil {
 			continue
 		}
-		if !info.IsDir() {
+		if !info.IsDir() && !fl.gitignoreFilter.ShouldIgnore(match) {
 			files = append(files, match)
 		}
 	}
@@ -176,7 +196,7 @@ func (fl *FileLoader) expandPattern(pattern string) ([]string, error) {
 func (fl *FileLoader) expandDoubleStarPattern(pattern string) ([]string, error) {
 	parts := strings.Split(pattern, "**")
 	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid ** pattern: %s", pattern)
+		return nil, fmt.Errorf("invalid ** pattern: %s. Use format like 'src/**/*.go' for recursive search", pattern)
 	}
 
 	baseDir := strings.TrimSuffix(parts[0], string(filepath.Separator))
@@ -193,9 +213,18 @@ func (fl *FileLoader) expandDoubleStarPattern(pattern string) ([]string, error) 
 		}
 
 		if info.IsDir() {
+			// Skip hidden directories and directories ignored by gitignore
 			if strings.HasPrefix(info.Name(), ".") && info.Name() != "." {
 				return filepath.SkipDir
 			}
+			if fl.gitignoreFilter.ShouldIgnore(path) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		// Skip files ignored by gitignore
+		if fl.gitignoreFilter.ShouldIgnore(path) {
 			return nil
 		}
 
@@ -409,7 +438,47 @@ func (fl *FileLoader) formatFileSize(bytes int64) string {
 		div *= unit
 		exp++
 	}
-	
+
 	units := []string{"KB", "MB", "GB", "TB"}
 	return fmt.Sprintf("%.1f %s", float64(bytes)/float64(div), units[exp])
+}
+
+// validatePattern validates file patterns and returns helpful error messages
+func (fl *FileLoader) validatePattern(pattern string) error {
+	if pattern == "" {
+		return fmt.Errorf("empty pattern not allowed. Try: /load *.go or /load main.go")
+	}
+
+	// Check for common problematic patterns
+	if pattern == "*" {
+		return fmt.Errorf("pattern '*' matches all files, which may be too broad. Try: /load *.go for Go files, or /load *.* for all files")
+	}
+
+	// Check for patterns that might match too many files
+	if strings.HasSuffix(pattern, "/**/*") && !strings.Contains(pattern, ".") {
+		return fmt.Errorf("pattern '%s' may match too many files. Try: /load %s*.go or add file extension", pattern, pattern)
+	}
+
+	// Check for invalid ** patterns
+	if strings.Contains(pattern, "**") {
+		parts := strings.Split(pattern, "**")
+		if len(parts) != 2 {
+			return fmt.Errorf("invalid ** pattern: %s. Use format like 'src/**/*.go' for recursive search", pattern)
+		}
+	}
+
+	// Check for absolute paths that might be problematic
+	if filepath.IsAbs(pattern) && strings.Contains(pattern, "*") {
+		return fmt.Errorf("absolute path patterns may be too broad: %s. Try relative patterns like '*.go' or 'src/**/*.go'", pattern)
+	}
+
+	// Warn about patterns that include common directories to avoid
+	problematicDirs := []string{"node_modules", "target", "dist", "build", ".git", "vendor"}
+	for _, dir := range problematicDirs {
+		if strings.Contains(pattern, dir) {
+			return fmt.Errorf("pattern '%s' includes '%s' directory, which may contain many files. Use more specific patterns", pattern, dir)
+		}
+	}
+
+	return nil
 }

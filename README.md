@@ -93,12 +93,20 @@ All commands start with `/` and support tab completion:
 
 **File Management**:
 - `/load <file>` - Load files additively (supports glob patterns like `*.go`, `**/*.py`)
+- `/load --all <file>` - Load files ignoring .gitignore (includes node_modules, etc.)
 - `/unload <pattern>` - Remove files matching pattern (supports wildcards)
 - `/add <file>` - Same as `/load` (deprecated, kept for compatibility)
 - `/reload` - Refresh files from disk
 - `/edit <file>` - Open file in external editor
+- `/edit <file:line>` - Jump to specific line in editor (e.g., `/edit main.go:42`)
 - `/list` - Show loaded files
 - `/clear` - Clear all context
+
+**Smart File Loading**:
+- Respects `.gitignore` by default (skips node_modules, build artifacts, etc.)
+- Pattern validation with helpful error messages and suggestions
+- Supports complex patterns: `src/**/*.go`, `{*.js,*.ts}`, etc.
+- File size limits with clear feedback
 
 **Session Management**:
 - `/history` - Show command history
@@ -131,10 +139,12 @@ All commands start with `/` and support tab completion:
 
 ### Commands
 ```
-/load <file>     - Load files
+/load <file>     - Load files (respects .gitignore)
+/load --all <file> - Load files ignoring .gitignore
 /add <file>      - Add more files
 /reload          - Refresh from disk
 /edit <file>     - Open in editor
+/edit <file:line> - Jump to specific line
 /list            - Show loaded files
 /clear           - Clear context
 /config show     - Show settings
