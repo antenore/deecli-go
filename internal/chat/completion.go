@@ -30,6 +30,7 @@ func NewCompletionEngine() *CompletionEngine {
 			"/add",
 			"/list",
 			"/clear",
+			"/unload",
 			"/reload",
 			"/analyze",
 			"/edit",
@@ -101,7 +102,7 @@ func (ce *CompletionEngine) Complete(input string, cursorPos int) ([]string, str
 			}
 		}
 
-		if cmd == "/load" || cmd == "/add" || cmd == "/reload" || cmd == "/edit" || cmd == "/create" {
+		if cmd == "/load" || cmd == "/add" || cmd == "/unload" || cmd == "/reload" || cmd == "/edit" || cmd == "/create" {
 			// Find the current word being typed at cursor position
 			currentWord, wordStart := ce.getCurrentWord(input, cursorPos)
 			if wordStart > 0 { // We're after the command

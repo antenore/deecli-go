@@ -197,7 +197,7 @@ func (m *Manager) FormatInitialContent() string {
 	// Compact welcome screen
 	welcomeContent := fmt.Sprintf(`🐉 DeeCLI - AI Code Assistant | %s
 
-Essential Commands: /load <file> /add <file> /list /clear /analyze /history /keysetup /help
+Essential Commands: /load <file> /unload <pattern> /list /clear /analyze /history /keysetup /help
 Quick Keys: Tab=complete/focus %s=newline ↑/↓ or %s/%s=history F1=help F2=files
 
 💡 Start by loading files: /load *.go or /load main.go
@@ -232,8 +232,9 @@ func (m *Manager) HelpContent() string {
 • %s: Next command/message
 
 === Chat Commands ===
-/load <file>    Load a file or glob pattern
-/add <file>     Add another file to context
+/load <file>    Load files (additive - adds to existing)
+/unload <pattern> Remove files matching pattern
+/add <file>     Same as /load (deprecated)
 /list           List all loaded files
 /clear          Clear all loaded files
 /analyze        Analyze loaded files

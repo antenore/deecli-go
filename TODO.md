@@ -16,11 +16,13 @@ Focus: Keep It Simple (KISS) and SOLID. Ship a fast, reliable TUI first; advance
   - Added smart context truncation with helpful error messages when exceeded
   - Show token usage and approximate context size to user in header and sidebar
   - Enhanced file content handling with size limits and usage indicators
-- File Loading UX Fixes (NEXT PRIORITY)
-  - Make `/load` additive by default (not destructive like current implementation)
-  - Respect `.gitignore` by default with `--all` flag to override
-  - Add `/unload <pattern>` for selective file removal
-  - Smart pattern loading that excludes build artifacts (node_modules, target/, dist/, etc.)
+- ✅ File Loading UX Fixes (FIXED)
+  - Made `/load` additive by default (no longer destructive)
+  - Added `/unload <pattern>` for selective file removal with glob pattern support
+  - Updated tab completion and help text to reflect new behavior
+  - Deprecated `/add` command (kept for backward compatibility)
+  - TODO: Respect `.gitignore` by default with `--all` flag to override
+  - TODO: Smart pattern loading that excludes build artifacts (node_modules, target/, dist/, etc.)
 - Terminal-Friendly Output Formatting
   - Clean code block formatting with clear boundaries for easy terminal selection
   - Syntax highlighting where possible without breaking selectability

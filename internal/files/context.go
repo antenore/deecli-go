@@ -164,6 +164,62 @@ func (fc *FileContext) RemoveFile(path string) bool {
 	return false
 }
 
+// UnloadFiles removes files matching the given pattern and returns count of removed files
+func (fc *FileContext) UnloadFiles(pattern string) int {
+	removed := 0
+	i := 0
+
+	for i < len(fc.Files) {
+		file := fc.Files[i]
+		// Check if file matches pattern (using simple glob-style matching)
+		matched := fc.matchesPattern(file.RelPath, pattern) || fc.matchesPattern(file.Path, pattern)
+
+		if matched {
+			// Remove this file
+			if fc.watcher != nil && fc.autoReloadEnabled {
+				fc.watcher.Unwatch(file.Path)
+			}
+			fc.Files = append(fc.Files[:i], fc.Files[i+1:]...)
+			removed++
+			// Don't increment i since we removed an element
+		} else {
+			i++
+		}
+	}
+
+	return removed
+}
+
+// matchesPattern checks if a path matches a simple glob pattern
+func (fc *FileContext) matchesPattern(path, pattern string) bool {
+	// Handle exact matches first
+	if path == pattern {
+		return true
+	}
+
+	// Handle wildcard patterns
+	if strings.Contains(pattern, "*") {
+		// Simple glob matching - convert * to regex and match
+		regexPattern := strings.ReplaceAll(pattern, "*", ".*")
+		regexPattern = "^" + regexPattern + "$"
+
+		// Use simple string matching for basic patterns
+		if strings.HasPrefix(pattern, "*") && strings.HasSuffix(pattern, "*") {
+			middle := pattern[1 : len(pattern)-1]
+			return strings.Contains(path, middle)
+		} else if strings.HasPrefix(pattern, "*") {
+			suffix := pattern[1:]
+			return strings.HasSuffix(path, suffix)
+		} else if strings.HasSuffix(pattern, "*") {
+			prefix := pattern[:len(pattern)-1]
+			return strings.HasPrefix(path, prefix)
+		}
+	}
+
+	// Check if pattern is a substring of the path (for partial matches)
+	return strings.Contains(path, pattern)
+}
+
 func (fc *FileContext) GetLoadedPaths() []string {
 	paths := make([]string, len(fc.Files))
 	for i, f := range fc.Files {

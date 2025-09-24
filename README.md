@@ -91,8 +91,9 @@ export DEEPSEEK_API_KEY='your-key-here'
 All commands start with `/` and support tab completion:
 
 **File Management**:
-- `/load <file>` - Load files (supports glob patterns like `*.go`, `**/*.py`)
-- `/add <file>` - Add more files to context
+- `/load <file>` - Load files additively (supports glob patterns like `*.go`, `**/*.py`)
+- `/unload <pattern>` - Remove files matching pattern (supports wildcards)
+- `/add <file>` - Same as `/load` (deprecated, kept for compatibility)
 - `/reload` - Refresh files from disk
 - `/edit <file>` - Open file in external editor
 - `/list` - Show loaded files

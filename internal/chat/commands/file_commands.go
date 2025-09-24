@@ -30,16 +30,14 @@ func NewFileCommands(deps Dependencies) *FileCommands {
 	return &FileCommands{deps: deps}
 }
 
-// Load handles the /load command
+// Load handles the /load command - now additive by default
 func (fc *FileCommands) Load(args []string) tea.Cmd {
 	if len(args) < 1 {
 		fc.deps.MessageLogger("system", "Usage: /load <filepath>")
 		return nil
 	}
 
-	// Clear existing file context first
-	fc.deps.FileContext.Clear()
-
+	// /load is now additive by default - no longer clears existing files
 	patterns := args
 	err := fc.deps.FileContext.LoadFiles(patterns)
 	if err != nil {
@@ -84,6 +82,25 @@ func (fc *FileCommands) Clear(args []string) tea.Cmd {
 	fc.deps.FileContext.Clear()
 	fc.deps.MessageLogger("system", "All files cleared")
 	fc.deps.RefreshUI()
+	return nil
+}
+
+// Unload handles the /unload command for selective file removal
+func (fc *FileCommands) Unload(args []string) tea.Cmd {
+	if len(args) < 1 {
+		fc.deps.MessageLogger("system", "Usage: /unload <pattern>")
+		return nil
+	}
+
+	pattern := args[0]
+	removed := fc.deps.FileContext.UnloadFiles(pattern)
+	if removed > 0 {
+		fc.deps.MessageLogger("system", fmt.Sprintf("Removed %d file(s) matching '%s'", removed, pattern))
+		fc.deps.MessageLogger("system", fc.deps.FileContext.GetInfo())
+		fc.deps.RefreshUI()
+	} else {
+		fc.deps.MessageLogger("system", fmt.Sprintf("No files found matching pattern '%s'", pattern))
+	}
 	return nil
 }
 

@@ -57,6 +57,8 @@ func (h *Handler) Handle(input string) tea.Cmd {
 		return h.fileCommands.List(args)
 	case "/clear":
 		return h.fileCommands.Clear(args)
+	case "/unload":
+		return h.fileCommands.Unload(args)
 	case "/reload":
 		return h.fileCommands.Reload(args)
 
