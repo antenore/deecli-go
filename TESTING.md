@@ -54,8 +54,9 @@ internal/
 
 ## Writing Tests
 
-Follow standard Go testing patterns:
+Follow standard Go testing patterns. Use testify framework for assertions when needed:
 
+**Standard Go Testing:**
 ```go
 package mypackage
 
@@ -70,6 +71,27 @@ func TestSomeFunction(t *testing.T) {
     if result != expected {
         t.Errorf("got %v, want %v", result, expected)
     }
+}
+```
+
+**Using Testify (preferred for complex assertions):**
+```go
+package mypackage
+
+import (
+    "testing"
+    "github.com/stretchr/testify/assert"
+    "github.com/stretchr/testify/require"
+)
+
+func TestSomeFunction(t *testing.T) {
+    input := "test input"
+    expected := "expected output"
+
+    result := functionUnderTest(input)
+
+    assert.Equal(t, expected, result)
+    require.NoError(t, err) // For required conditions
 }
 ```
 
