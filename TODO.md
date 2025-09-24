@@ -63,6 +63,7 @@ Focus: Keep It Simple (KISS) and SOLID. Ship a fast, reliable TUI first; advance
 ## Done Recently
 - ✅ **Basic File Operations COMPLETE** - All P0 file operation improvements shipped
   - `/edit file:line` support with comprehensive testing and documentation
+  - **BUG FIX**: `/edit file:line` now works correctly with AI instructions (was creating literal "file:line" files)
   - Enhanced error messages with actionable suggestions for all file operations
   - Pattern pre-validation to catch problematic patterns early with helpful guidance
   - .gitignore support by default with `--all` flag override, using battle-tested `go-gitignore` library
