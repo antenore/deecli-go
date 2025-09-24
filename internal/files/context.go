@@ -184,6 +184,21 @@ func (fc *FileContext) GetFormattedContextSize() int {
 	return len(fc.BuildContextPrompt())
 }
 
+// GetEstimatedTokens estimates token count from context using the common approximation
+func (fc *FileContext) GetEstimatedTokens() int {
+	contextSize := fc.GetFormattedContextSize()
+	return contextSize / 4 // 1 token ≈ 4 characters
+}
+
+// GetContextUsagePercent calculates context usage as a percentage of the configured limit
+func (fc *FileContext) GetContextUsagePercent(maxContextSize int) float64 {
+	if maxContextSize <= 0 {
+		return 0.0
+	}
+	currentSize := fc.GetFormattedContextSize()
+	return float64(currentSize) / float64(maxContextSize) * 100.0
+}
+
 func (fc *FileContext) BuildContextPrompt() string {
 	return fc.BuildContextPromptWithLimit(0) // 0 means no limit
 }

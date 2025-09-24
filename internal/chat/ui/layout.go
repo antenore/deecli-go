@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/antenore/deecli/internal/config"
+	"github.com/antenore/deecli/internal/files"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -64,8 +65,8 @@ func (l *Layout) CalculateTextareaWidth(terminalWidth int, sidebarVisible bool) 
 	return textareaWidth
 }
 
-// RenderHeader creates the application header
-func (l *Layout) RenderHeader(filesCount int, focusMode string) string {
+// RenderHeader creates the application header with context information
+func (l *Layout) RenderHeader(filesCount int, focusMode string, fileContext *files.FileContext) string {
 	headerStyle := lipgloss.NewStyle().
 		Background(lipgloss.Color("62")).
 		Foreground(lipgloss.Color("230")).
@@ -89,8 +90,46 @@ func (l *Layout) RenderHeader(filesCount int, focusMode string) string {
 		newlineKeyDisplay = l.FormatKeyForDisplay(key)
 	}
 
-	header := headerStyle.Render(fmt.Sprintf("DeeCLI | F: %d | NL: %s | F1 | F2 | Tab%s",
-		filesCount, newlineKeyDisplay, focusIndicator))
+	// Get context information
+	contextInfo := ""
+	if fileContext != nil && filesCount > 0 {
+		// Get context metrics
+		formattedSize := fileContext.GetFormattedContextSize()
+
+		// Get config for limits
+		maxContextSize := 100000 // Default
+		if l.configManager != nil {
+			cfg := l.configManager.Get()
+			if cfg != nil && cfg.MaxContextSize > 0 {
+				maxContextSize = cfg.MaxContextSize
+			}
+		}
+
+		usagePercent := fileContext.GetContextUsagePercent(maxContextSize)
+
+		// Format context size for display
+		var sizeStr string
+		if formattedSize < 1024 {
+			sizeStr = fmt.Sprintf("%dB", formattedSize)
+		} else {
+			sizeStr = fmt.Sprintf("%.1fK", float64(formattedSize)/1024)
+		}
+
+		// Color indicator for usage
+		var indicator string
+		if usagePercent >= 90 {
+			indicator = "🔴"
+		} else if usagePercent >= 70 {
+			indicator = "🟡"
+		} else {
+			indicator = "🟢"
+		}
+
+		contextInfo = fmt.Sprintf(" | %s %s %.0f%%", indicator, sizeStr, usagePercent)
+	}
+
+	header := headerStyle.Render(fmt.Sprintf("DeeCLI | F: %d%s | NL: %s | F1 | F2 | Tab%s",
+		filesCount, contextInfo, newlineKeyDisplay, focusIndicator))
 
 	return header
 }

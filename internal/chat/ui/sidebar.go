@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/antenore/deecli/internal/config"
 	"github.com/antenore/deecli/internal/files"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -30,7 +31,7 @@ func NewSidebar() *Sidebar {
 }
 
 // RenderFilesSidebar creates the files sidebar content
-func (s *Sidebar) RenderFilesSidebar(fileContext *files.FileContext) string {
+func (s *Sidebar) RenderFilesSidebar(fileContext *files.FileContext, configManager *config.Manager) string {
 	var sb strings.Builder
 
 	// Sidebar title
@@ -85,14 +86,58 @@ func (s *Sidebar) RenderFilesSidebar(fileContext *files.FileContext) string {
 			totalSize += file.Size
 		}
 
-		// Total context size at bottom
+		// Context usage information with warnings
 		sb.WriteString("\n")
 		sb.WriteString(strings.Repeat("─", 22) + "\n")
+
+		// Get context metrics
+		formattedSize := fileContext.GetFormattedContextSize()
+		estimatedTokens := fileContext.GetEstimatedTokens()
 		totalStr := s.FormatFileSize(totalSize)
+
+		// Get config for limits
+		maxContextSize := 100000 // Default
+		if configManager != nil {
+			cfg := configManager.Get()
+			if cfg != nil && cfg.MaxContextSize > 0 {
+				maxContextSize = cfg.MaxContextSize
+			}
+		}
+
+		usagePercent := fileContext.GetContextUsagePercent(maxContextSize)
+
+		// Color-code based on usage percentage
+		var contextColor string
+		var warningText string
+		if usagePercent >= 90 {
+			contextColor = "196" // Red
+			warningText = " ⚠️"
+		} else if usagePercent >= 70 {
+			contextColor = "208" // Orange/Yellow
+			warningText = " ⚡"
+		} else {
+			contextColor = "46" // Green
+		}
+
+		// Display file total
 		sb.WriteString(lipgloss.NewStyle().
 			Foreground(lipgloss.Color("208")).
 			Bold(true).
-			Render(fmt.Sprintf("Total: %s", totalStr)) + "\n")
+			Render(fmt.Sprintf("Files: %s", totalStr)) + "\n")
+
+		// Display context usage
+		formattedSizeStr := s.FormatFileSize(int64(formattedSize))
+		maxSizeStr := s.FormatFileSize(int64(maxContextSize))
+
+		sb.WriteString(lipgloss.NewStyle().
+			Foreground(lipgloss.Color(contextColor)).
+			Bold(true).
+			Render(fmt.Sprintf("Context: %s/%s%s", formattedSizeStr, maxSizeStr, warningText)) + "\n")
+
+		// Show estimated tokens
+		sb.WriteString(lipgloss.NewStyle().
+			Foreground(lipgloss.Color("244")).
+			Render(fmt.Sprintf("~%d tokens (%.1f%%)", estimatedTokens, usagePercent)) + "\n")
 	}
 
 	return sb.String()

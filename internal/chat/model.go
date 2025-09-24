@@ -271,25 +271,24 @@ func newChatModelInternal(configManager *config.Manager, apiKey, model string, t
 
 		// Set up auto-reload with notification callback
 		if err := fileCtx.EnableAutoReload(ctx, func(results []files.ReloadResult) {
+			changedCount := 0
+			for _, result := range results {
+				if result.Status == "changed" {
+					changedCount++
+				}
+			}
+
 			// Show auto-reload notification if configured
-			if configManager.GetShowReloadNotices() {
-				changedCount := 0
-				for _, result := range results {
-					if result.Status == "changed" {
-						changedCount++
-					}
-				}
-				if changedCount > 0 {
-					chatModel.addMessage("system", fmt.Sprintf("📁 Auto-reloaded %d modified file(s)", changedCount))
+			if configManager.GetShowReloadNotices() && changedCount > 0 {
+				chatModel.addMessage("system", fmt.Sprintf("📁 Auto-reloaded %d modified file(s)", changedCount))
 
-					// Update sidebar if visible
-					if chatModel.filesWidgetVisible {
-						chatModel.sidebarViewport.SetContent(chatModel.renderFilesSidebar())
-					}
-
-					// Refresh viewport to show the message
-					chatModel.refreshViewport()
+				// Update sidebar if visible
+				if chatModel.filesWidgetVisible {
+					chatModel.sidebarViewport.SetContent(chatModel.renderFilesSidebar())
 				}
+
+				// Refresh viewport to show the message
+				chatModel.refreshViewport()
 			}
 		}); err != nil {
 			// Auto-reload setup failed, but continue
@@ -775,7 +774,27 @@ func (m *NewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						if m.apiClient != nil {
 							contextPrompt := ""
 							if len(m.fileContext.Files) > 0 {
-								contextPrompt = m.fileContext.BuildContextPrompt()
+								// Get config for smart context management
+								maxContextSize := 100000 // Default
+								if m.configManager != nil {
+									cfg := m.configManager.Get()
+									if cfg != nil && cfg.MaxContextSize > 0 {
+										maxContextSize = cfg.MaxContextSize
+									}
+								}
+
+								// Estimate if we need truncation (leave buffer for user input and API overhead)
+								inputSize := len(input)
+								bufferSize := inputSize + 10000 // Reserve 10KB for API overhead and user input
+								contextBudget := maxContextSize - bufferSize
+
+								if contextBudget > 5000 { // Only use truncation if we have reasonable budget
+									contextPrompt = m.fileContext.BuildContextPromptWithLimit(contextBudget)
+								} else {
+									// Very tight budget, use minimal context
+									contextPrompt = fmt.Sprintf("Files loaded: %d (content truncated due to size limits)\n",
+										len(m.fileContext.Files))
+								}
 							}
 
 							m.textarea.Reset()
@@ -817,7 +836,7 @@ func (m NewModel) View() string {
 
 	// Build header using layout manager
 	filesCount := len(m.fileContext.Files)
-	header := m.layoutManager.RenderHeader(filesCount, m.focusMode)
+	header := m.layoutManager.RenderHeader(filesCount, m.focusMode, m.fileContext)
 
 	// Build main content area using layout manager
 	chatContent := m.viewport.View()
@@ -840,7 +859,7 @@ func (m NewModel) View() string {
 
 // renderFilesSidebar creates the files sidebar content
 func (m *NewModel) renderFilesSidebar() string {
-	return m.sidebar.RenderFilesSidebar(m.fileContext)
+	return m.sidebar.RenderFilesSidebar(m.fileContext, m.configManager)
 }
 
 
