@@ -2,11 +2,10 @@
 
 Focus: Keep It Simple (KISS) and SOLID. Ship a fast, reliable TUI first; advanced features are optional and opt‑in.
 
-## P0 — Must Have (Stability & Core UX)
+## P0 — Must Have (Daily Usability Blockers)
 - ✅ Multi-round conversation context bug (FIXED)
   - Implemented simple working solution: all loaded files sent with every request
   - Ensures files remain accessible throughout conversation history
-  - See CONTEXT_MANAGEMENT_PLAN.md for research and future optimization strategy
 - ✅ Streaming reliability (FIXED)
   - Implemented meaningful content detection to prevent empty assistant messages
   - Enhanced message manager and viewport synchronization during streaming
@@ -17,17 +16,26 @@ Focus: Keep It Simple (KISS) and SOLID. Ship a fast, reliable TUI first; advance
   - Added smart context truncation with helpful error messages when exceeded
   - Show token usage and approximate context size to user in header and sidebar
   - Enhanced file content handling with size limits and usage indicators
-- Config correctness (NEXT PRIORITY)
-  - Single source of truth (env overrides, profiles) and predictable behavior.
-- Tests & CI
-  - Unit tests for streaming (chunking, completion), message sync, file watcher debounce.
-  - Keep Makefile targets green; avoid flaky tests.
+- File Loading UX Fixes (NEXT PRIORITY)
+  - Make `/load` additive by default (not destructive like current implementation)
+  - Respect `.gitignore` by default with `--all` flag to override
+  - Add `/unload <pattern>` for selective file removal
+  - Smart pattern loading that excludes build artifacts (node_modules, target/, dist/, etc.)
+- Terminal-Friendly Output Formatting
+  - Clean code block formatting with clear boundaries for easy terminal selection
+  - Syntax highlighting where possible without breaking selectability
+  - Proper spacing and indentation preservation
+  - Remove formatting that interferes with terminal copy/paste workflow
+- Basic File Operations
+  - `/edit <file>:line` support if editor supports it
+  - Better error messages for file operations with suggested fixes
+  - Validate file patterns before attempting to load
 
-## P1 — High‑Impact UX (Small, Safe Wins)
-- Output formatting improvements (code blocks, wrapping, copyability).
-- Token/size feedback: show approximate context size and a gentle warning when near the cap.
-- File operations: respect `.gitignore` for `/load` and completions; `/edit file:line` if the editor supports it.
-- Basic Git integration: `/git diff`, `/git status` (read‑only).
+## P1 — High‑Impact Developer Workflow (Small, Safe Wins)
+- Git integration: `/git diff`, `/git status` (read‑only commands)
+- Session management: `/session save <name>`, `/session load <name>`
+- Tab completion improvements respecting `.gitignore`
+- Better file pattern completion (exclude build artifacts by default)
 
 ## P2 — Roadmap (When Core Is Solid)
 - Tools layer (THE REAL SOLUTION for context management)
@@ -36,25 +44,34 @@ Focus: Keep It Simple (KISS) and SOLID. Ship a fast, reliable TUI first; advance
   - Preview/confirm flows for file operations
   - This solves context bloat and scales to large codebases
 - Request IDs and simple retry/backoff; slow‑call logging.
-- Session commands: `/session list|load|save`.
 - Context optimization commands: `/compact`, `/summarize` for conversation cleanup.
 
 ## P3 — Nice to Dream About (Complex/Optional)
+- Config system refinements (env overrides, profiles) - developers don't need this daily
 - AST/LSP assistance (opt‑in):
   - Start Go‑only (std `go/ast`) for outlines and targeted spans.
-  - Optional LSP adapter (`gopls`, pyright, tsserver) with graceful fallback.
+  - Optional LSP adapter (`gopls`, pyright, tsserver`) with graceful fallback.
   - Warning: adds dependencies, complexity, and indexing overhead; keep disabled by default.
 - Response caching and cost tracking.
+- Advanced configuration correctness (single source of truth, predictable behavior)
 
 ## Done Recently
 - ✅ **Streaming reliability FIX** - Eliminated empty assistant messages and improved content detection
 - ✅ **Context window management FIX** - Added comprehensive UI monitoring and smart truncation
 - ✅ **Multi-round conversation context bug FIX** - Files now remain accessible throughout conversations
-- ✅ **Context management research** - Analyzed Claude Code, OpenAI Codex, DeepSeek approaches
-- ✅ **Implementation plan** - Created CONTEXT_MANAGEMENT_PLAN.md with detailed future roadmap
+- ✅ **Context management research** - Analyzed approaches, implemented working solution
 - Visual spinner and "thinking" flow improvements.
 - Auto‑reload robustness (rename events) and notices.
 - Enhanced config validation and history/input handling.
 - Partial architecture clean‑up (extracted managers; continue reducing large files).
+
+## Testing Priority
+- Unit tests for file loading logic (gitignore, additive behavior)
+- Integration tests for real developer workflows
+- Keep Makefile targets green; avoid flaky tests.
+
+---
+
+**Developer Reality Check**: Focus on daily pain points that make developers choose other tools. The goal is making DeeCLI faster and more convenient than "Claude Web + copy/paste" for code work.
 
 Last updated: 2025‑01‑27
