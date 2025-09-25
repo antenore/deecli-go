@@ -1,124 +1,81 @@
 # TODO.md
 
-Focus: Keep It Simple (KISS) and SOLID. Ship a fast, reliable TUI first; advanced features are optional and opt‑in.
+Focus: Keep It Simple (KISS). Ship working tools that developers actually need.
 
-## P0 — Must Have (Daily Usability Blockers)
-- ✅ Multi-round conversation context bug (FIXED)
-  - Implemented simple working solution: all loaded files sent with every request
-  - Ensures files remain accessible throughout conversation history
-- ✅ Streaming reliability (FIXED)
-  - Implemented meaningful content detection to prevent empty assistant messages
-  - Enhanced message manager and viewport synchronization during streaming
-  - Improved spinner timing with intelligent content analysis
-  - Model‑aware timeouts and clear error handling already working properly
-- ✅ Context window management (FIXED)
-  - Implemented context size monitoring with color-coded warnings in UI
-  - Added smart context truncation with helpful error messages when exceeded
-  - Show token usage and approximate context size to user in header and sidebar
-  - Enhanced file content handling with size limits and usage indicators
-- ✅ File Loading UX Fixes (FIXED)
-  - Made `/load` additive by default (no longer destructive)
-  - Added `/unload <pattern>` for selective file removal with glob pattern support
-  - Updated tab completion and help text to reflect new behavior
-  - Deprecated `/add` command (kept for backward compatibility)
-  - TODO: Respect `.gitignore` by default with `--all` flag to override
-  - TODO: Smart pattern loading that excludes build artifacts (node_modules, target/, dist/, etc.)
-- ✅ Terminal-Friendly Output Formatting (FIXED)
-  - RAW code by default - instantly copyable without any borders
-  - F3 toggles formatting for new messages (raw vs bordered)
-  - Fixed /edit instruction file to strip box-drawing characters
-  - Configuration options: syntax_highlight and code_block_style in config.yaml
-  - KISS: Prioritized copying over pretty formatting
-- ✅ Basic File Operations (COMPLETED)
-  - ✅ `/edit <file>:line` support - fully working and documented
-  - ✅ Better error messages for file operations with suggested fixes
-  - ✅ Validate file patterns before attempting to load
-  - ✅ Basic .gitignore support with `--all` flag to override
-  - ✅ Refactored to use proven `go-gitignore` library (180+ lines → 15 lines)
+## P0 — Core Stability (✅ DONE)
+- ✅ Multi-round conversation context
+- ✅ Streaming reliability  
+- ✅ Context window management
+- ✅ File loading UX (additive /load, /unload, .gitignore respect)
+- ✅ Terminal-friendly output (raw code by default, F3 toggles)
+- ✅ Basic file operations (/edit file:line)
 
-## P1 — AI Function Calling System (THE BREAKTHROUGH FEATURE)
-**Vision**: AI can autonomously execute commands with user approval, becoming a true coding partner
+## P1 — Essential Writing Tools (NEXT PRIORITY)
+**Goal**: Let AI actually modify code, not just read it
 
-**Why P1**: This transforms DeeCLI from "chat interface" to "autonomous AI assistant" - major differentiator
+### Phase 1: Basic Write Operations (Start Here)
+- **write_file**: Create new files or overwrite existing
+- **edit_file**: Apply text replacements to existing files  
+- **append_file**: Add content to end of file
+- Keep using simple approval system: [Once] [Always] [Never]
 
-### Phase 1: Infrastructure & Read-Only Operations (PARTIALLY COMPLETE)
-- ✅ **DeepSeek Function Calling Integration**: Implement tools/function calling API support
-- ✅ **Permission Framework**: Basic approve/deny system with project-level persistence
-- ✅ **Read-Only Tool Functions**: `git_status()`, `git_diff()`, `list_files()`, `read_file()`
-- ✅ **Approval UI**: Simple TUI prompts: `[Approve Once] [Always Approve] [Never]`
+### Phase 2: Smart Code Tools  
+- **grep_code**: Use ripgrep first, fallback to grep if not available
+  - Pattern matching in codebase with context lines
+  - Respect .gitignore by default
+- **find_symbol**: Find function/class/variable definitions
+  - Start with simple regex patterns
+  - Later: optional Go AST for .go files (stdlib go/ast)
+- **apply_patch**: Apply unified diff patches
+  - Use system `patch` command
+  - Show preview before applying
 
-**✅ RESOLVED**: Context re-execution bug - AI re-runs previously executed tools on new requests
-- Status: FIXED - Message history sync issue resolved
-- Solution: Added `m.aiOperations.SetAPIMessages(m.apiMessages)` after tool result append
-- Root Cause: Tool results weren't synced to ai.Operations before follow-up calls
-- Impact: Tools now work correctly without re-execution or hallucination
+### Phase 3: Refactoring Tools
+- **rename_symbol**: Rename across multiple files
+- **extract_function**: Extract code into new function
+- **move_file**: Move and update imports
 
-### Phase 2: Enhanced Permission System (Medium Complexity)
-- **Granular Permissions**: Per-command, per-project, command-category approvals
-- **Safety Classifications**: Automatic read-only vs write operation detection
-- **Permission Management**: `/permissions` command to view/edit approval settings
-- **Audit Log**: Track all AI-initiated commands for security
+## P2 — Developer Experience 
+### Logging (Start Simple)
+- Add structured logging with `slog` (Go 1.21+ stdlib)
+  - Debug/Info/Warn/Error levels
+  - Log to ~/.deecli/logs/ with rotation
+  - Flag: --log-level=debug|info|warn|error
+- Log tool executions for debugging (not "audit" - just troubleshooting)
 
-### Phase 3: Write Operations (High Value, Needs Care)
-- **Safe Write Functions**: `edit_file()`, `create_file()` with enhanced approval flows
-- **Preview Mode**: Show exactly what AI wants to change before execution
-- **Rollback Support**: Easy undo for AI-initiated file changes
-- **Sandbox Mode**: Option to run AI commands in isolated environment
+### Session Management
+- `/session save <name>` - save conversation
+- `/session load <name>` - restore conversation  
+- `/session list` - show saved sessions
+- Store in SQLite (already have the dependency)
 
-### Phase 4: Advanced Automation (Future Vision)
-- **Workflow Templates**: Pre-approved command sequences for common tasks
-- **Smart Context**: AI automatically loads relevant files based on conversation
-- **Background Monitoring**: AI watches for file changes and offers relevant help
+### Better Shell Integration
+- **run_command**: Execute shell commands with approval
+  - Show command before execution
+  - Capture stdout/stderr
+  - Working directory awareness
 
-## P2 — Traditional Developer Workflow (When P1 Phase 1 is Stable)
-- Session management: `/session save <name>`, `/session load <name>`
-- Tab completion improvements respecting `.gitignore`
-- Better file pattern completion (exclude build artifacts by default)
-- Request IDs and simple retry/backoff; slow‑call logging
-- Context optimization commands: `/compact`, `/summarize` for conversation cleanup
+## P3 — Nice to Have (Later)
+- Advanced permissions (per-tool, per-project)
+- Cost tracking and response caching
+- LSP integration (gopls, pyright) - optional, off by default
+- Workflow templates for common tasks
 
-## P3 — Advanced Features (Complex/Optional)
-- Config system refinements (env overrides, profiles) - developers don't need this daily
-- AST/LSP assistance (opt‑in):
-  - Start Go‑only (std `go/ast`) for outlines and targeted spans.
-  - Optional LSP adapter (`gopls`, pyright, tsserver`) with graceful fallback.
-  - Warning: adds dependencies, complexity, and indexing overhead; keep disabled by default.
-- Response caching and cost tracking.
-- Advanced configuration correctness (single source of truth, predictable behavior)
+## Anti-Patterns to Avoid
+- ❌ Over-engineering permission systems before having write tools
+- ❌ Building complex audit logs when simple debug logs would suffice
+- ❌ Reimplementing grep/ripgrep/patch - use what exists
+- ❌ Adding dependencies for problems we don't have yet
 
-## Done Recently
-- ✅ **AI Function Calling System INFRASTRUCTURE** - Complete foundation for autonomous AI assistant
-  - Full DeepSeek API integration with streaming and non-streaming support
-  - Tool registry with 4 read-only tools: git_status, git_diff, list_files, read_file
-  - Complete approval system with project-scoped permissions
-  - Professional TUI approval dialog with keyboard navigation
-  - Empty argument handling and robust error management
-  - **BUG FIX**: Double execution eliminated with proper queue validation
-  - **BUG FIX**: Context re-execution resolved (message history sync issue fixed)
-- ✅ **Basic File Operations COMPLETE** - All P0 file operation improvements shipped
-  - `/edit file:line` support with comprehensive testing and documentation
-  - **BUG FIX**: `/edit file:line` now works correctly with AI instructions (was creating literal "file:line" files)
-  - Enhanced error messages with actionable suggestions for all file operations
-  - Pattern pre-validation to catch problematic patterns early with helpful guidance
-  - .gitignore support by default with `--all` flag override, using battle-tested `go-gitignore` library
-- ✅ **Terminal-Friendly Output Formatting** - RAW code by default for instant copying, F3 toggles formatting, KISS approach
-- ✅ **Streaming reliability FIX** - Eliminated empty assistant messages and improved content detection
-- ✅ **Context window management FIX** - Added comprehensive UI monitoring and smart truncation
-- ✅ **Multi-round conversation context bug FIX** - Files now remain accessible throughout conversations
-
-## Testing Priority
-- Unit tests for file loading logic (gitignore, additive behavior)
-- Integration tests for real developer workflows
-- Keep Makefile targets green; avoid flaky tests.
+## Development Principles
+- Use system tools first (ripgrep, grep, patch, diff)
+- Implement fallbacks only when truly needed
+- Keep dependencies minimal and proven
+- Test with real developer workflows
+- Ship incrementally - working features over perfect architecture
 
 ---
 
-**Developer Reality Check**: Core P0 stability achieved. Next major feature: AI Function Calling System.
+**Current Status**: Read-only tools work. Next: Add basic write tools so AI can actually help code.
 
-User workflow becomes:
-- User: "What changed recently?"
-- AI: [requests git_status] → [approved] → "3 files modified. Main changes in parser.go..."
-
-Focus: Build this system to be safe and reliable.
-
-Last updated: 2025‑01‑27
+Last updated: 2025-01-27
