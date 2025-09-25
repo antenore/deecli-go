@@ -41,11 +41,17 @@ Focus: Keep It Simple (KISS) and SOLID. Ship a fast, reliable TUI first; advance
 
 **Why P1**: This transforms DeeCLI from "chat interface" to "autonomous AI assistant" - major differentiator
 
-### Phase 1: Infrastructure & Read-Only Operations (High Feasibility)
-- **DeepSeek Function Calling Integration**: Implement tools/function calling API support
-- **Permission Framework**: Basic approve/deny system with project-level persistence
-- **Read-Only Tool Functions**: `git_status()`, `git_diff()`, `list_files()`, `read_file()`
-- **Approval UI**: Simple TUI prompts: `[Approve Once] [Always Approve] [Never]`
+### Phase 1: Infrastructure & Read-Only Operations (PARTIALLY COMPLETE)
+- ✅ **DeepSeek Function Calling Integration**: Implement tools/function calling API support
+- ✅ **Permission Framework**: Basic approve/deny system with project-level persistence
+- ✅ **Read-Only Tool Functions**: `git_status()`, `git_diff()`, `list_files()`, `read_file()`
+- ✅ **Approval UI**: Simple TUI prompts: `[Approve Once] [Always Approve] [Never]`
+
+**CRITICAL ISSUE**: Context re-execution bug - AI re-runs previously executed tools on new requests
+- Status: Under investigation
+- Impact: Tools work but execute multiple times unnecessarily
+- Priority: Must fix before Phase 2
+- Analysis: See TOOL_EXECUTION_ANALYSIS.md for detailed technical analysis
 
 ### Phase 2: Enhanced Permission System (Medium Complexity)
 - **Granular Permissions**: Per-command, per-project, command-category approvals
@@ -81,6 +87,14 @@ Focus: Keep It Simple (KISS) and SOLID. Ship a fast, reliable TUI first; advance
 - Advanced configuration correctness (single source of truth, predictable behavior)
 
 ## Done Recently
+- ✅ **AI Function Calling System INFRASTRUCTURE** - Complete foundation for autonomous AI assistant
+  - Full DeepSeek API integration with streaming and non-streaming support
+  - Tool registry with 4 read-only tools: git_status, git_diff, list_files, read_file
+  - Complete approval system with project-scoped permissions
+  - Professional TUI approval dialog with keyboard navigation
+  - Empty argument handling and robust error management
+  - **BUG FIX**: Double execution eliminated with proper queue validation
+  - **ONGOING**: Context re-execution investigation (tools work but repeat unnecessarily)
 - ✅ **Basic File Operations COMPLETE** - All P0 file operation improvements shipped
   - `/edit file:line` support with comprehensive testing and documentation
   - **BUG FIX**: `/edit file:line` now works correctly with AI instructions (was creating literal "file:line" files)
@@ -91,11 +105,6 @@ Focus: Keep It Simple (KISS) and SOLID. Ship a fast, reliable TUI first; advance
 - ✅ **Streaming reliability FIX** - Eliminated empty assistant messages and improved content detection
 - ✅ **Context window management FIX** - Added comprehensive UI monitoring and smart truncation
 - ✅ **Multi-round conversation context bug FIX** - Files now remain accessible throughout conversations
-- ✅ **Context management research** - Analyzed approaches, implemented working solution
-- Visual spinner and "thinking" flow improvements.
-- Auto‑reload robustness (rename events) and notices.
-- Enhanced config validation and history/input handling.
-- Partial architecture clean‑up (extracted managers; continue reducing large files).
 
 ## Testing Priority
 - Unit tests for file loading logic (gitignore, additive behavior)
