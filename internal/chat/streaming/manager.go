@@ -155,6 +155,19 @@ func (sm *Manager) GetStreamReader() interface{} {
 	return sm.streamReader
 }
 
+// GetStream returns the current stream reader as api.StreamReader
+func (sm *Manager) GetStream() api.StreamReader {
+	if reader, ok := sm.streamReader.(api.StreamReader); ok {
+		return reader
+	}
+	return nil
+}
+
+// AppendContent appends content to the stream
+func (sm *Manager) AppendContent(content string) {
+	sm.streamContent += content
+}
+
 // IsActive returns whether streaming is currently active
 func (sm *Manager) IsActive() bool {
 	return sm.isActive

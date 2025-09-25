@@ -305,3 +305,34 @@ Provide clear, actionable advice and explanations.`,
 
 	return s.client.SendChatRequestStream(ctx, messages)
 }
+
+// ChatWithHistoryContextStreamWithTools sends a streaming chat request with tools, conversation history and code context
+func (s *Service) ChatWithHistoryContextStreamWithTools(ctx context.Context, conversationHistory []Message, contextPrompt, userMessage string, tools []Tool) (StreamReader, error) {
+	messages := []Message{
+		{
+			Role: "system",
+			Content: `You are an expert software engineer and code reviewer.
+You help developers understand, improve, and debug their code.
+Provide clear, actionable advice and explanations.
+You have access to tools to help you gather information about the project.`,
+		},
+	}
+
+	messages = append(messages, conversationHistory...)
+
+	// Add file context as separate system message for better conversation structure
+	if contextPrompt != "" {
+		messages = append(messages, Message{
+			Role:    "system",
+			Content: fmt.Sprintf("Files Context:\n%s", contextPrompt),
+		})
+	}
+
+	// Add user message separately
+	messages = append(messages, Message{
+		Role:    "user",
+		Content: userMessage,
+	})
+
+	return s.client.SendChatRequestStreamWithTools(ctx, messages, tools)
+}

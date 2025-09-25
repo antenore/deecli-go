@@ -534,6 +534,47 @@ func (m *NewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 
+	case ai.StreamChunkWithToolsMsg:
+		// Similar to StreamChunkMsg but tracks tool calls
+		// Continue streaming with accumulated tool calls
+		nextCmd := ai.ReadNextChunkWithTools(
+			m.streamingManager.GetStream(),
+			m.streamingManager.GetStreamContent(),
+			msg.ToolCalls,
+		)
+		if nextCmd != nil {
+			cmds = append(cmds, nextCmd)
+		}
+
+		// Update display with current streaming content
+		if msg.Content != "" {
+			m.streamingManager.AppendContent(msg.Content)
+			m.streamingManager.UpdateDisplay(m.streamingManager.GetStreamContent(), m.renderer, &m.messages, &m.viewport)
+		}
+
+	case ai.ToolCallsStreamMsg:
+		// Streaming completed with tool calls
+		completionMsg := ai.StreamCompleteMsg{
+			TotalContent: msg.TotalContent,
+			Err:          nil,
+		}
+		m.streamingManager.CompleteStream(completionMsg)
+		if cmd := m.setLoading(false, ""); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+		// Handle the tool calls
+		if len(msg.ToolCalls) > 0 {
+			// Convert to non-streaming format and handle
+			toolMsg := ai.ToolCallsResponseMsg{
+				ToolCalls: msg.ToolCalls,
+				Response:  nil, // No full response in streaming
+			}
+			if cmd := m.handleToolCallsResponse(toolMsg); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+
 	case ai.StreamCompleteMsg:
 		// Use streaming manager to handle completion
 		completionCmd := m.streamingManager.CompleteStream(msg)
@@ -1044,6 +1085,7 @@ func (m *NewModel) callAPI(contextPrompt, userInput string) tea.Cmd {
     streamingThreshold := maxContextSize
 
     // Use streaming when enabled and total context is under the configured threshold
+    // Streaming now supports tools via CallAPIStream
     if m.streamingEnabled && contextSize < streamingThreshold {
 		cmd := m.aiOperations.CallAPIStream(contextPrompt, userInput)
 		// Store the cancel function
@@ -1274,8 +1316,14 @@ func (m *NewModel) requestToolApproval(toolCall api.ToolCall) tea.Cmd {
 
 	// Parse tool call arguments
 	var args map[string]interface{}
-	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
-		args = map[string]interface{}{"raw": toolCall.Function.Arguments}
+
+	// Handle empty or invalid arguments
+	if toolCall.Function.Arguments == "" || toolCall.Function.Arguments == "null" {
+		// Use empty object for tools that don't require arguments
+		args = map[string]interface{}{}
+	} else if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
+		// If parsing fails and it's not empty, try to use defaults
+		args = map[string]interface{}{}
 	}
 
 	// Get tool description
@@ -1317,7 +1365,13 @@ func (m *NewModel) executeApprovedTool(response tools.ApprovalResponse) tea.Cmd 
 	// Execute the tool
 	return func() tea.Msg {
 		// Parse arguments
-		var args json.RawMessage = []byte(toolCall.Function.Arguments)
+		var args json.RawMessage
+		// Handle empty or malformed arguments
+		if toolCall.Function.Arguments == "" || toolCall.Function.Arguments == "null" {
+			args = []byte("{}")
+		} else {
+			args = []byte(toolCall.Function.Arguments)
+		}
 
 		// Execute the tool
 		result, err := m.toolsExecutor.ExecuteWithoutPermission(context.Background(), toolCall.Function.Name, args)
@@ -1364,13 +1418,8 @@ func (m *NewModel) handleToolExecutionComplete(msg ToolExecutionCompleteMsg) tea
 	// Show tool output
 	m.addMessage("system", fmt.Sprintf("🔧 %s result:\n\n%s", msg.ToolCall.Function.Name, msg.Result.Output))
 
-	// Add tool call and result to API messages for conversation context
-	m.apiMessages = append(m.apiMessages, api.Message{
-		Role:      "assistant",
-		Content:   "",
-		ToolCalls: []api.ToolCall{msg.ToolCall},
-	})
-
+	// Add only tool result to API messages for conversation context
+	// Do NOT add the assistant message with ToolCalls to prevent re-execution
 	m.apiMessages = append(m.apiMessages, api.Message{
 		Role:       "tool",
 		Content:    msg.Result.Output,
@@ -1379,8 +1428,22 @@ func (m *NewModel) handleToolExecutionComplete(msg ToolExecutionCompleteMsg) tea
 
 	// If there are more pending tool calls, process the next one
 	if len(m.pendingToolCalls) > 0 {
-		return m.requestToolApproval(m.pendingToolCalls[0])
+		// Validate the next tool call before processing
+		nextTool := m.pendingToolCalls[0]
+		if nextTool.Function.Name != "" && nextTool.ID != "" {
+			return m.requestToolApproval(nextTool)
+		} else {
+			// Clear invalid tool call from queue
+			m.pendingToolCalls = m.pendingToolCalls[1:]
+			// Check if there are more valid tools
+			if len(m.pendingToolCalls) > 0 {
+				return m.requestToolApproval(m.pendingToolCalls[0])
+			}
+		}
 	}
+
+	// Clear the pending tool calls queue when all tools are complete
+	m.pendingToolCalls = nil
 
 	// All tools complete - let the AI continue with the enhanced context
 	m.addMessage("system", "✨ AI can now use this information to help you better!")

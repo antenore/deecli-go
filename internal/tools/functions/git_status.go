@@ -54,8 +54,12 @@ func (g *GitStatus) Execute(ctx context.Context, args json.RawMessage) (string, 
 	var params struct {
 		Short bool `json:"short"`
 	}
-	if err := json.Unmarshal(args, &params); err != nil {
-		return "", fmt.Errorf("failed to parse arguments: %w", err)
+
+	// Handle empty or invalid arguments by using defaults
+	if len(args) > 0 && string(args) != "" && string(args) != "{}" && string(args) != "null" {
+		if err := json.Unmarshal(args, &params); err != nil {
+			return "", fmt.Errorf("failed to parse arguments: %w", err)
+		}
 	}
 
 	// Build command

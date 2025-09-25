@@ -66,7 +66,12 @@ func (l *ListFiles) Execute(ctx context.Context, args json.RawMessage) (string, 
 		Pattern   string `json:"pattern"`
 		Recursive bool   `json:"recursive"`
 	}
-	if err := json.Unmarshal(args, &params); err != nil {
+
+	// Handle empty or invalid arguments by using defaults
+	if len(args) == 0 || string(args) == "" || string(args) == "{}" || string(args) == "null" {
+		// Use default values
+		params.Path = "."
+	} else if err := json.Unmarshal(args, &params); err != nil {
 		return "", fmt.Errorf("failed to parse arguments: %w", err)
 	}
 

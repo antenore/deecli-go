@@ -15,11 +15,12 @@ package api
 
 // ChatRequest represents a chat completion request
 type ChatRequest struct {
-	Model       string    `json:"model"`
-	Messages    []Message `json:"messages"`
-	Temperature float64   `json:"temperature,omitempty"`
-	MaxTokens   int       `json:"max_tokens"`
-	Tools       []Tool    `json:"tools,omitempty"`
+	Model       string      `json:"model"`
+	Messages    []Message   `json:"messages"`
+	Temperature float64     `json:"temperature,omitempty"`
+	MaxTokens   int         `json:"max_tokens"`
+	Tools       []Tool      `json:"tools,omitempty"`
+	ToolChoice  interface{} `json:"tool_choice,omitempty"`
 }
 
 // Message represents a chat message
@@ -77,12 +78,13 @@ type ChatResponse struct {
 
 // StreamingChatRequest represents a streaming chat completion request
 type StreamingChatRequest struct {
-	Model       string    `json:"model"`
-	Messages    []Message `json:"messages"`
-	Temperature float64   `json:"temperature,omitempty"`
-	MaxTokens   int       `json:"max_tokens"`
-	Stream      bool      `json:"stream"`
-	Tools       []Tool    `json:"tools,omitempty"`
+	Model       string      `json:"model"`
+	Messages    []Message   `json:"messages"`
+	Temperature float64     `json:"temperature,omitempty"`
+	MaxTokens   int         `json:"max_tokens"`
+	Stream      bool        `json:"stream"`
+	Tools       []Tool      `json:"tools,omitempty"`
+	ToolChoice  interface{} `json:"tool_choice,omitempty"`
 }
 
 // ChatCompletionChunk represents a chunk in streaming response

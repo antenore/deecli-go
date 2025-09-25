@@ -199,6 +199,11 @@ func (client *DeepSeekClient) sendSingleRequestWithToolsAndContext(ctx context.C
 		Tools:     tools,
 	}
 
+	// Add tool_choice auto when tools are present
+	if len(tools) > 0 {
+		request.ToolChoice = "auto"
+	}
+
 	// Only add temperature for non-reasoner models
 	if client.model != "deepseek-reasoner" {
 		request.Temperature = client.temperature
@@ -574,6 +579,91 @@ func (client *DeepSeekClient) SendChatRequestStream(ctx context.Context, message
 		Messages:  messages,
 		MaxTokens: client.maxTokens,
 		Stream:    true,
+	}
+
+	// Only add temperature for non-reasoner models
+	if client.model != "deepseek-reasoner" {
+		request.Temperature = client.temperature
+	}
+
+	jsonData, err := json.Marshal(request)
+	if err != nil {
+		return nil, APIError{
+			StatusCode:  0,
+			Message:     fmt.Sprintf("failed to marshal request: %v", err),
+			Retryable:   false,
+			UserMessage: "Request formatting error. Please try again.",
+		}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", client.baseURL+"/chat/completions", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, APIError{
+			StatusCode:  0,
+			Message:     fmt.Sprintf("failed to create request: %v", err),
+			Retryable:   false,
+			UserMessage: "Request creation error. Please try again.",
+		}
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+client.apiKey)
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Connection", "keep-alive")
+
+	resp, err := client.httpClient.Do(req)
+	if err != nil {
+		// Check if context was cancelled
+		if ctx.Err() == context.Canceled {
+			return nil, APIError{
+				StatusCode:  0,
+				Message:     "request cancelled by user",
+				Retryable:   false,
+				UserMessage: "Request cancelled",
+			}
+		}
+		return nil, APIError{
+			StatusCode:  0,
+			Message:     fmt.Sprintf("request failed: %v", err),
+			Retryable:   true,
+			UserMessage: "Network error. Please try again.",
+		}
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		return nil, client.handleHTTPError(resp.StatusCode, body)
+	}
+
+	// Create stream reader
+	reader := &deepSeekStreamReader{
+		reader: bufio.NewReader(resp.Body),
+		resp:   resp,
+		ctx:    ctx,
+	}
+
+	return reader, nil
+}
+
+// SendChatRequestStreamWithTools sends a streaming chat completion request with tools
+func (client *DeepSeekClient) SendChatRequestStreamWithTools(ctx context.Context, messages []Message, tools []Tool) (StreamReader, error) {
+	// Update activity timestamp
+	client.updateActivity()
+
+	// Create streaming request
+	request := StreamingChatRequest{
+		Model:     client.model,
+		Messages:  messages,
+		MaxTokens: client.maxTokens,
+		Stream:    true,
+		Tools:     tools,
+	}
+
+	// Add tool_choice auto when tools are present
+	if len(tools) > 0 {
+		request.ToolChoice = "auto"
 	}
 
 	// Only add temperature for non-reasoner models

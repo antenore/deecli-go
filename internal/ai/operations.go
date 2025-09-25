@@ -46,6 +46,19 @@ type StreamCompleteMsg struct {
 	Err          error
 }
 
+// ToolCallsStreamMsg for streaming API calls that request tool execution
+type ToolCallsStreamMsg struct {
+	ToolCalls    []api.ToolCall
+	TotalContent string
+}
+
+// StreamChunkWithToolsMsg represents a chunk with accumulated tool calls
+type StreamChunkWithToolsMsg struct {
+	Content   string
+	ToolCalls []api.ToolCall
+	IsDone    bool
+}
+
 // Operations handles AI-related operations
 type Operations struct {
 	apiClient     *api.Service
@@ -219,7 +232,18 @@ func (o *Operations) CallAPIStream(contextPrompt, userInput string) tea.Cmd {
 	o.apiCancel = cancel
 
 	return func() tea.Msg {
-		stream, err := o.apiClient.ChatWithHistoryContextStream(ctx, o.apiMessages, contextPrompt, userInput)
+		var stream api.StreamReader
+		var err error
+
+		// Check if we have tools available
+		if len(o.availableTools) > 0 {
+			// Use tools-enabled streaming API call
+			stream, err = o.apiClient.ChatWithHistoryContextStreamWithTools(ctx, o.apiMessages, contextPrompt, userInput, o.availableTools)
+		} else {
+			// Regular streaming without tools
+			stream, err = o.apiClient.ChatWithHistoryContextStream(ctx, o.apiMessages, contextPrompt, userInput)
+		}
+
 		if err != nil {
 			return StreamCompleteMsg{Err: err}
 		}
@@ -240,12 +264,24 @@ type StreamStartedMsg struct {
 
 // ReadNextChunk returns a command to read the next chunk from a stream
 func ReadNextChunk(stream api.StreamReader, accumulated string) tea.Cmd {
+	return ReadNextChunkWithTools(stream, accumulated, nil)
+}
+
+// ReadNextChunkWithTools returns a command to read the next chunk from a stream, handling tool calls
+func ReadNextChunkWithTools(stream api.StreamReader, accumulated string, accumulatedToolCalls []api.ToolCall) tea.Cmd {
 	return func() tea.Msg {
 		chunk, err := stream.Recv()
 		if err != nil {
 			if err == io.EOF {
 				// Stream completed successfully
 				stream.Close()
+				// If we have accumulated tool calls, return them
+				if len(accumulatedToolCalls) > 0 {
+					return ToolCallsStreamMsg{
+						ToolCalls:    accumulatedToolCalls,
+						TotalContent: accumulated,
+					}
+				}
 				return StreamCompleteMsg{TotalContent: accumulated}
 			}
 			// Stream error
@@ -253,10 +289,50 @@ func ReadNextChunk(stream api.StreamReader, accumulated string) tea.Cmd {
 			return StreamCompleteMsg{TotalContent: accumulated, Err: err}
 		}
 
-		// Extract content from chunk
+		// Check for finish reason indicating tool calls
+		if len(chunk.Choices) > 0 && chunk.Choices[0].FinishReason != nil {
+			finishReason := *chunk.Choices[0].FinishReason
+			// Tool calls can be signaled by "tool_calls" or "function_call"
+			if finishReason == "tool_calls" || finishReason == "function_call" {
+				// Tool calls are complete
+				if len(accumulatedToolCalls) > 0 {
+					return ToolCallsStreamMsg{
+						ToolCalls:    accumulatedToolCalls,
+						TotalContent: accumulated,
+					}
+				}
+			}
+		}
+
+		// Extract content and tool calls from chunk
 		content := ""
+		var toolCalls []api.ToolCall
 		if len(chunk.Choices) > 0 {
 			content = chunk.Choices[0].Delta.Content
+
+			// Check for tool calls in the delta
+			if len(chunk.Choices[0].Delta.ToolCalls) > 0 {
+				toolCalls = chunk.Choices[0].Delta.ToolCalls
+				// Merge with accumulated tool calls
+				accumulatedToolCalls = mergeToolCalls(accumulatedToolCalls, toolCalls)
+
+				// Debug: log tool call progress (optional, enable with DEECLI_DEBUG=1)
+				if os.Getenv("DEECLI_DEBUG") == "1" {
+					for _, tc := range accumulatedToolCalls {
+						fmt.Printf("Debug: Tool call ID=%s, Name=%s, Args=%q\n", tc.ID, tc.Function.Name, tc.Function.Arguments)
+					}
+				}
+			}
+		}
+
+		// If we have tool calls but no finish reason yet, continue accumulating
+		if len(accumulatedToolCalls) > 0 && (len(chunk.Choices) == 0 || chunk.Choices[0].FinishReason == nil || *chunk.Choices[0].FinishReason != "tool_calls") {
+			// Continue reading chunks with accumulated tool calls
+			return StreamChunkWithToolsMsg{
+				Content:   content,
+				ToolCalls: accumulatedToolCalls,
+				IsDone:    false,
+			}
 		}
 
 		return StreamChunkMsg{
@@ -264,6 +340,39 @@ func ReadNextChunk(stream api.StreamReader, accumulated string) tea.Cmd {
 			IsDone:  false,
 		}
 	}
+}
+
+// mergeToolCalls merges new tool call deltas into accumulated tool calls
+func mergeToolCalls(accumulated, new []api.ToolCall) []api.ToolCall {
+	if len(accumulated) == 0 {
+		return new
+	}
+
+	// Map to track existing tool calls by ID
+	toolMap := make(map[string]*api.ToolCall)
+	for i := range accumulated {
+		toolMap[accumulated[i].ID] = &accumulated[i]
+	}
+
+	// Merge new tool calls
+	for _, newCall := range new {
+		if existing, ok := toolMap[newCall.ID]; ok {
+			// Merge arguments (they may come in chunks)
+			if newCall.Function.Arguments != "" {
+				existing.Function.Arguments += newCall.Function.Arguments
+			}
+			// Update name if provided
+			if newCall.Function.Name != "" {
+				existing.Function.Name = newCall.Function.Name
+			}
+		} else {
+			// New tool call
+			accumulated = append(accumulated, newCall)
+			toolMap[newCall.ID] = &accumulated[len(accumulated)-1]
+		}
+	}
+
+	return accumulated
 }
 
 // AnalyzeFiles analyzes loaded files

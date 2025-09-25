@@ -69,8 +69,13 @@ func (e *Executor) Execute(ctx context.Context, request ExecutionRequest, projec
 	case PermissionOnce, "": // Empty means no permission set yet
 		// Request approval from user
 		var args map[string]interface{}
-		if err := json.Unmarshal(request.Arguments, &args); err != nil {
-			args = map[string]interface{}{"raw": string(request.Arguments)}
+		// Handle empty or invalid arguments
+		argStr := string(request.Arguments)
+		if argStr == "" || argStr == "null" || argStr == "{}" {
+			args = map[string]interface{}{}
+		} else if err := json.Unmarshal(request.Arguments, &args); err != nil {
+			// Use empty args for invalid JSON
+			args = map[string]interface{}{}
 		}
 
 		approvalReq := ApprovalRequest{
