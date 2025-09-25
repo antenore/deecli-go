@@ -93,7 +93,12 @@ func (client *DeepSeekClient) SendChatRequest(ctx context.Context, messages []Me
 
 // SendChatRequestWithTools sends a chat completion request with function calling tools
 func (client *DeepSeekClient) SendChatRequestWithTools(ctx context.Context, messages []Message, tools []Tool) (*ChatResponse, error) {
-	return client.sendChatRequestWithToolsAndRetry(ctx, messages, tools)
+	return client.SendChatRequestWithToolsAndChoice(ctx, messages, tools, "auto")
+}
+
+// SendChatRequestWithToolsAndChoice sends a chat completion request with function calling tools and specified tool choice
+func (client *DeepSeekClient) SendChatRequestWithToolsAndChoice(ctx context.Context, messages []Message, tools []Tool, toolChoice string) (*ChatResponse, error) {
+	return client.sendChatRequestWithToolsAndRetry(ctx, messages, tools, toolChoice)
 }
 
 // sendChatRequestWithRetryContext sends a chat request with retry logic and context cancellation
@@ -142,7 +147,7 @@ func (client *DeepSeekClient) sendChatRequestWithRetryContext(ctx context.Contex
 }
 
 // sendChatRequestWithToolsAndRetry sends a chat request with tools and returns full response
-func (client *DeepSeekClient) sendChatRequestWithToolsAndRetry(ctx context.Context, messages []Message, tools []Tool) (*ChatResponse, error) {
+func (client *DeepSeekClient) sendChatRequestWithToolsAndRetry(ctx context.Context, messages []Message, tools []Tool, toolChoice string) (*ChatResponse, error) {
 	var lastErr error
 
 	for attempt := 0; attempt <= client.maxRetries; attempt++ {
@@ -165,7 +170,7 @@ func (client *DeepSeekClient) sendChatRequestWithToolsAndRetry(ctx context.Conte
 			}
 		}
 
-		result, err := client.sendSingleRequestWithToolsAndContext(ctx, messages, tools)
+		result, err := client.sendSingleRequestWithToolsAndContext(ctx, messages, tools, toolChoice)
 		if err == nil {
 			return result, nil
 		}
@@ -187,7 +192,7 @@ func (client *DeepSeekClient) sendChatRequestWithToolsAndRetry(ctx context.Conte
 }
 
 // sendSingleRequestWithToolsAndContext makes a single API request with tools and returns full response
-func (client *DeepSeekClient) sendSingleRequestWithToolsAndContext(ctx context.Context, messages []Message, tools []Tool) (*ChatResponse, error) {
+func (client *DeepSeekClient) sendSingleRequestWithToolsAndContext(ctx context.Context, messages []Message, tools []Tool, toolChoice string) (*ChatResponse, error) {
 	// Update activity timestamp
 	client.updateActivity()
 
@@ -199,9 +204,9 @@ func (client *DeepSeekClient) sendSingleRequestWithToolsAndContext(ctx context.C
 		Tools:     tools,
 	}
 
-	// Add tool_choice auto when tools are present
+	// Add tool_choice when tools are present
 	if len(tools) > 0 {
-		request.ToolChoice = "auto"
+		request.ToolChoice = toolChoice
 	}
 
 	// Only add temperature for non-reasoner models
@@ -649,6 +654,11 @@ func (client *DeepSeekClient) SendChatRequestStream(ctx context.Context, message
 
 // SendChatRequestStreamWithTools sends a streaming chat completion request with tools
 func (client *DeepSeekClient) SendChatRequestStreamWithTools(ctx context.Context, messages []Message, tools []Tool) (StreamReader, error) {
+	return client.SendChatRequestStreamWithToolsAndChoice(ctx, messages, tools, "auto")
+}
+
+// SendChatRequestStreamWithToolsAndChoice sends a streaming chat completion request with tools and specified tool choice
+func (client *DeepSeekClient) SendChatRequestStreamWithToolsAndChoice(ctx context.Context, messages []Message, tools []Tool, toolChoice string) (StreamReader, error) {
 	// Update activity timestamp
 	client.updateActivity()
 
@@ -661,9 +671,9 @@ func (client *DeepSeekClient) SendChatRequestStreamWithTools(ctx context.Context
 		Tools:     tools,
 	}
 
-	// Add tool_choice auto when tools are present
+	// Add tool_choice when tools are present
 	if len(tools) > 0 {
-		request.ToolChoice = "auto"
+		request.ToolChoice = toolChoice
 	}
 
 	// Only add temperature for non-reasoner models

@@ -245,6 +245,85 @@ go test -race ./...     # Race condition detection
 - Check for path resolution problems
 - Validate glob pattern matching
 
+### AI Tool Execution System
+
+The AI tool execution system allows DeeCLI to autonomously execute commands with user approval. Understanding the architecture is crucial for debugging and extending functionality.
+
+#### Architecture Flow
+```go
+// Tool execution follows this precise sequence:
+1. AI requests tool via ToolCallsResponseMsg
+2. Tool added to pendingToolCalls queue (internal/chat/model.go)
+3. User approves via approval dialog
+4. Tool executed and result stored
+5. CRITICAL: Results synced to ai.Operations via SetAPIMessages()
+6. Follow-up API call with tool_choice:"none" for completion
+```
+
+#### Common Issues and Solutions
+
+**Problem: AI ignores tool results or re-executes tools**
+- **Root Cause**: Message history not synced between `m.apiMessages` and `ai.Operations`
+- **Solution**: Ensure `m.aiOperations.SetAPIMessages(m.apiMessages)` called after tool result append
+- **Location**: `internal/chat/model.go:handleToolExecutionComplete()`
+- **Symptoms**: AI claims "I don't see tool results" or requests same tool again
+
+**Problem: Infinite tool execution loops**
+- **Root Cause**: Follow-up API calls without proper `tool_choice` parameter
+- **Solution**: Use `CallAPIWithToolsNoChoice()` for post-tool completion
+- **Key insight**: Include tools array with `tool_choice:"none"` to prevent re-execution
+
+**Problem: Tool execution fails with empty function names**
+- **Root Cause**: Queue management issues with invalid tool calls
+- **Solution**: Validate tool calls before processing (check `Function.Name` and `ID`)
+- **Location**: Tool call validation in `handleToolExecutionComplete()`
+
+#### Debugging Tool Execution
+
+**Enable detailed logging:**
+```go
+// Add to tool execution flow for debugging
+fmt.Printf("Tool result appended to m.apiMessages (len=%d)\n", len(m.apiMessages))
+fmt.Printf("Syncing to ai.Operations...\n")
+m.aiOperations.SetAPIMessages(m.apiMessages)
+fmt.Printf("ai.Operations updated (len=%d)\n", len(m.aiOperations.GetAPIMessages()))
+```
+
+**Validate conversation history:**
+```go
+// Check that tool results are present in follow-up calls
+history := m.aiOperations.GetAPIMessages()
+for i, msg := range history {
+    if msg.Role == "tool" {
+        fmt.Printf("Tool result at index %d: %s\n", i, msg.ToolCallID)
+    }
+}
+```
+
+#### Key Implementation Details
+
+**Message History Structure:**
+```go
+// Correct sequence for tool execution:
+1. assistant message with ToolCalls
+2. role:"tool" message with Content + ToolCallID
+3. Follow-up completion (no artificial assistant "ack" messages)
+```
+
+**Follow-up Call Requirements:**
+```go
+// MUST include tools array with tool_choice:"none"
+chatResp, err := o.apiClient.ChatWithHistoryContextAndToolsWithChoice(
+    ctx, history, contextPrompt, userInput, o.availableTools, "none"
+)
+```
+
+**DeepSeek API Compliance:**
+- Tools array: `{type: "function", function: {name, description, parameters}}`
+- Streaming: Handle `delta.tool_calls` in SSE responses
+- Tool choice: Support "auto", "none", "required", and specific function selection
+- History: Maintain `assistant.tool_calls` → `role:"tool"` → completion sequence
+
 ## Future Architecture Considerations
 
 ### Planned Enhancements

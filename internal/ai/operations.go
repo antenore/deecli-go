@@ -154,11 +154,13 @@ func (o *Operations) CallAPI(contextPrompt, userInput string) tea.Cmd {
 	// Store the cancel function so we can use it later
 	o.apiCancel = cancel
 
-	return func() tea.Msg {
-		// Check if we have tools available
-		if len(o.availableTools) > 0 {
-			// Use tools-enabled API call
-			chatResp, err := o.apiClient.ChatWithHistoryContextAndTools(ctx, o.apiMessages, contextPrompt, userInput, o.availableTools)
+    return func() tea.Msg {
+        // Trim conversation history to a recent window to reduce re-answering past questions
+        history := trimHistory(o.apiMessages, 30)
+        // Check if we have tools available
+        if len(o.availableTools) > 0 {
+            // Use tools-enabled API call
+            chatResp, err := o.apiClient.ChatWithHistoryContextAndTools(ctx, history, contextPrompt, userInput, o.availableTools)
 			if err != nil {
 				return APIResponseMsg{Response: "", Err: err}
 			}
@@ -178,10 +180,106 @@ func (o *Operations) CallAPI(contextPrompt, userInput string) tea.Cmd {
 			}
 		}
 
-		// Fallback to regular API call without tools
-		response, err := o.apiClient.ChatWithHistoryContext(ctx, o.apiMessages, contextPrompt, userInput)
-		return APIResponseMsg{Response: response, Err: err}
-	}
+        // Fallback to regular API call without tools
+        response, err := o.apiClient.ChatWithHistoryContext(ctx, history, contextPrompt, userInput)
+        return APIResponseMsg{Response: response, Err: err}
+    }
+}
+
+// CallAPIWithToolsNoChoice makes a non-streaming API call with tools present but tool_choice="none".
+// Used to finalize an assistant response after tool execution, preventing loops while maintaining tool context.
+func (o *Operations) CallAPIWithToolsNoChoice(contextPrompt, userInput string) tea.Cmd {
+    // Context size guard (same as CallAPI)
+    contextSize := len(contextPrompt) + len(userInput)
+    contextTokens := EstimateTokens(contextPrompt + userInput)
+
+    cfg := o.configManager.Get()
+    maxContextSize := cfg.MaxContextSize
+    if maxContextSize == 0 {
+        maxContextSize = 100000
+    }
+    maxContextTokens := EstimateTokens(fmt.Sprintf("%*s", maxContextSize, ""))
+
+    if contextSize > maxContextSize || contextTokens > maxContextTokens {
+        return func() tea.Msg {
+            fileInfo := o.fileContext.GetInfo()
+            return APIResponseMsg{Err: fmt.Errorf("context too large - chars: %d/%d, tokens: %d/%d\n\n%s\n\nTry loading fewer files or unload large files with /clear",
+                contextSize, maxContextSize, contextTokens, maxContextTokens, fileInfo)}
+        }
+    }
+
+    // Model-aware timeout
+    timeout := 180 * time.Second
+    if o.configManager != nil {
+        cfg := o.configManager.Get()
+        if cfg != nil && strings.EqualFold(cfg.Model, "deepseek-reasoner") {
+            timeout = 300 * time.Second
+        }
+    }
+    ctx, cancel := context.WithTimeout(context.Background(), timeout)
+    o.apiCancel = cancel
+
+    return func() tea.Msg {
+        // Use trimmed history with tools present but tool_choice="none"
+        history := trimHistory(o.apiMessages, 30)
+        if len(o.availableTools) > 0 {
+            // Use tools-enabled API call with tool_choice="none"
+            chatResp, err := o.apiClient.ChatWithHistoryContextAndToolsWithChoice(ctx, history, contextPrompt, userInput, o.availableTools, "none")
+            if err != nil {
+                return APIResponseMsg{Response: "", Err: err}
+            }
+            var content string
+            if len(chatResp.Choices) > 0 {
+                content = chatResp.Choices[0].Message.Content
+            }
+            return APIResponseMsg{Response: content, Err: nil}
+        }
+        // Fallback to regular API call without tools
+        response, err := o.apiClient.ChatWithHistoryContext(ctx, history, contextPrompt, userInput)
+        return APIResponseMsg{Response: response, Err: err}
+    }
+}
+
+// CallAPIWithoutTools makes a non-streaming API call that explicitly does not allow tools.
+// Used to finalize an assistant response after tool execution, preventing loops.
+// DEPRECATED: Use CallAPIWithToolsNoChoice instead to maintain tool context awareness.
+func (o *Operations) CallAPIWithoutTools(contextPrompt, userInput string) tea.Cmd {
+    // Context size guard (same as CallAPI)
+    contextSize := len(contextPrompt) + len(userInput)
+    contextTokens := EstimateTokens(contextPrompt + userInput)
+
+    cfg := o.configManager.Get()
+    maxContextSize := cfg.MaxContextSize
+    if maxContextSize == 0 {
+        maxContextSize = 100000
+    }
+    maxContextTokens := EstimateTokens(fmt.Sprintf("%*s", maxContextSize, ""))
+
+    if contextSize > maxContextSize || contextTokens > maxContextTokens {
+        return func() tea.Msg {
+            fileInfo := o.fileContext.GetInfo()
+            return APIResponseMsg{Err: fmt.Errorf("context too large - chars: %d/%d, tokens: %d/%d\n\n%s\n\nTry loading fewer files or unload large files with /clear",
+                contextSize, maxContextSize, contextTokens, maxContextTokens, fileInfo)}
+        }
+    }
+
+    // Model-aware timeout
+    timeout := 180 * time.Second
+    if o.configManager != nil {
+        cfg := o.configManager.Get()
+        if cfg != nil && strings.EqualFold(cfg.Model, "deepseek-reasoner") {
+            timeout = 300 * time.Second
+        }
+    }
+    ctx, cancel := context.WithTimeout(context.Background(), timeout)
+    o.apiCancel = cancel
+
+    return func() tea.Msg {
+        // Use trimmed history, but never include tools in this call
+        history := trimHistory(o.apiMessages, 30)
+        response, err := o.apiClient.ChatWithHistoryContext(ctx, history, contextPrompt, userInput)
+        return APIResponseMsg{Response: response, Err: err}
+    }
 }
 
 // CallAPIStream makes a streaming API call with context and user input
@@ -231,18 +329,20 @@ func (o *Operations) CallAPIStream(contextPrompt, userInput string) tea.Cmd {
 	// Store the cancel function so we can use it later
 	o.apiCancel = cancel
 
-	return func() tea.Msg {
-		var stream api.StreamReader
-		var err error
+    return func() tea.Msg {
+        // Trim conversation history to a recent window
+        history := trimHistory(o.apiMessages, 30)
+        var stream api.StreamReader
+        var err error
 
 		// Check if we have tools available
-		if len(o.availableTools) > 0 {
-			// Use tools-enabled streaming API call
-			stream, err = o.apiClient.ChatWithHistoryContextStreamWithTools(ctx, o.apiMessages, contextPrompt, userInput, o.availableTools)
-		} else {
-			// Regular streaming without tools
-			stream, err = o.apiClient.ChatWithHistoryContextStream(ctx, o.apiMessages, contextPrompt, userInput)
-		}
+        if len(o.availableTools) > 0 {
+            // Use tools-enabled streaming API call
+            stream, err = o.apiClient.ChatWithHistoryContextStreamWithTools(ctx, history, contextPrompt, userInput, o.availableTools)
+        } else {
+            // Regular streaming without tools
+            stream, err = o.apiClient.ChatWithHistoryContextStream(ctx, history, contextPrompt, userInput)
+        }
 
 		if err != nil {
 			return StreamCompleteMsg{Err: err}
@@ -254,6 +354,15 @@ func (o *Operations) CallAPIStream(contextPrompt, userInput string) tea.Cmd {
 			Ctx:    ctx,
 		}
 	}
+}
+
+// trimHistory keeps only the last N messages to avoid the model re-answering older questions.
+// Keep a reasonably large window to preserve relevant context.
+func trimHistory(messages []api.Message, max int) []api.Message {
+    if max <= 0 || len(messages) <= max {
+        return messages
+    }
+    return messages[len(messages)-max:]
 }
 
 // StreamStartedMsg indicates that streaming has started

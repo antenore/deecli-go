@@ -47,11 +47,11 @@ Focus: Keep It Simple (KISS) and SOLID. Ship a fast, reliable TUI first; advance
 - ✅ **Read-Only Tool Functions**: `git_status()`, `git_diff()`, `list_files()`, `read_file()`
 - ✅ **Approval UI**: Simple TUI prompts: `[Approve Once] [Always Approve] [Never]`
 
-**CRITICAL ISSUE**: Context re-execution bug - AI re-runs previously executed tools on new requests
-- Status: Under investigation
-- Impact: Tools work but execute multiple times unnecessarily
-- Priority: Must fix before Phase 2
-- Analysis: See TOOL_EXECUTION_ANALYSIS.md for detailed technical analysis
+**✅ RESOLVED**: Context re-execution bug - AI re-runs previously executed tools on new requests
+- Status: FIXED - Message history sync issue resolved
+- Solution: Added `m.aiOperations.SetAPIMessages(m.apiMessages)` after tool result append
+- Root Cause: Tool results weren't synced to ai.Operations before follow-up calls
+- Impact: Tools now work correctly without re-execution or hallucination
 
 ### Phase 2: Enhanced Permission System (Medium Complexity)
 - **Granular Permissions**: Per-command, per-project, command-category approvals
@@ -94,7 +94,7 @@ Focus: Keep It Simple (KISS) and SOLID. Ship a fast, reliable TUI first; advance
   - Professional TUI approval dialog with keyboard navigation
   - Empty argument handling and robust error management
   - **BUG FIX**: Double execution eliminated with proper queue validation
-  - **ONGOING**: Context re-execution investigation (tools work but repeat unnecessarily)
+  - **BUG FIX**: Context re-execution resolved (message history sync issue fixed)
 - ✅ **Basic File Operations COMPLETE** - All P0 file operation improvements shipped
   - `/edit file:line` support with comprehensive testing and documentation
   - **BUG FIX**: `/edit file:line` now works correctly with AI instructions (was creating literal "file:line" files)

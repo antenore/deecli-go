@@ -1432,11 +1432,8 @@ func (m *NewModel) handleToolExecutionComplete(msg ToolExecutionCompleteMsg) tea
 		ToolCallID: msg.ToolCall.ID,
 	})
 
-	// Add assistant acknowledgment of tool completion to prevent re-execution
-	m.apiMessages = append(m.apiMessages, api.Message{
-		Role:    "assistant",
-		Content: fmt.Sprintf("I have successfully used the %s tool and received the information.", msg.ToolCall.Function.Name),
-	})
+	// Sync updated conversation history to ai.Operations so follow-up calls include tool results
+	m.aiOperations.SetAPIMessages(m.apiMessages)
 
 	// If there are more pending tool calls, process the next one
 	if len(m.pendingToolCalls) > 0 {
@@ -1454,11 +1451,21 @@ func (m *NewModel) handleToolExecutionComplete(msg ToolExecutionCompleteMsg) tea
 		}
 	}
 
-	// Clear the pending tool calls queue when all tools are complete
-	m.pendingToolCalls = nil
+    // Clear the pending tool calls queue when all tools are complete
+    m.pendingToolCalls = nil
 
-	// All tools complete - let the AI continue with the enhanced context
-	m.addMessage("system", "✨ AI can now use this information to help you better!")
+    // Trigger a follow-up completion using tools but with tool_choice="none"
+    // so the AI finalizes the response without re-invoking tools.
+    if m.aiOperations != nil {
+        if cmd := m.setLoading(true, "Continuing..."); cmd != nil {
+            follow := m.aiOperations.CallAPIWithToolsNoChoice("", "")
+            m.apiCancel = m.aiOperations.GetAPICancel()
+            return tea.Batch(cmd, follow)
+        }
+        follow := m.aiOperations.CallAPIWithToolsNoChoice("", "")
+        m.apiCancel = m.aiOperations.GetAPICancel()
+        return follow
+    }
 
-	return nil
+    return nil
 }

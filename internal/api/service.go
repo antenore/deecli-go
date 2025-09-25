@@ -33,14 +33,16 @@ func NewService(client *DeepSeekClient) *Service {
 
 // ChatAboutCode sends a chat request about code to the AI
 func (s *Service) ChatAboutCode(code, userMessage string) (string, error) {
-	messages := []Message{
-		{
-			Role: "system",
-			Content: `You are an expert software engineer and code reviewer.
+    messages := []Message{
+        {
+            Role: "system",
+            Content: `You are an expert software engineer and code reviewer.
 You help developers understand, improve, and debug their code.
-Provide clear, actionable advice and explanations.`,
-		},
-	}
+Provide clear, actionable advice and explanations.
+
+CRITICAL: If tool results are already present in the conversation history, you MUST use those results to answer. Do not ignore tool outputs or hallucinate different information. Always base your response on the actual tool results provided.`,
+        },
+    }
 
 	var userContent string
 	if code != "" {
@@ -83,26 +85,35 @@ Provide clear, actionable advice and explanations.`,
 		})
 	}
 
-	// Add user message separately
-	messages = append(messages, Message{
-		Role:    "user",
-		Content: userMessage,
-	})
+    // Add user message separately (only if non-empty)
+    if strings.TrimSpace(userMessage) != "" {
+        messages = append(messages, Message{
+            Role:    "user",
+            Content: userMessage,
+        })
+    }
 
 	return s.client.SendChatRequest(ctx, messages)
 }
 
 // ChatWithHistoryContextAndTools sends a chat request with tools, conversation history and code context
 func (s *Service) ChatWithHistoryContextAndTools(ctx context.Context, conversationHistory []Message, contextPrompt, userMessage string, tools []Tool) (*ChatResponse, error) {
-	messages := []Message{
-		{
-			Role: "system",
-			Content: `You are an expert software engineer and code reviewer.
+	return s.ChatWithHistoryContextAndToolsWithChoice(ctx, conversationHistory, contextPrompt, userMessage, tools, "auto")
+}
+
+// ChatWithHistoryContextAndToolsWithChoice sends a chat request with tools, conversation history, code context and specified tool choice
+func (s *Service) ChatWithHistoryContextAndToolsWithChoice(ctx context.Context, conversationHistory []Message, contextPrompt, userMessage string, tools []Tool, toolChoice string) (*ChatResponse, error) {
+    messages := []Message{
+        {
+            Role: "system",
+            Content: `You are an expert software engineer and code reviewer.
 You help developers understand, improve, and debug their code.
 Provide clear, actionable advice and explanations.
-You have access to tools to help you gather information about the project.`,
-		},
-	}
+You have access to tools to help you gather information about the project.
+
+CRITICAL: If tool results are already present in the conversation history, you MUST use those results to answer. Do not ignore tool outputs or hallucinate different information. Always base your response on the actual tool results provided.`,
+        },
+    }
 
 	messages = append(messages, conversationHistory...)
 
@@ -114,13 +125,15 @@ You have access to tools to help you gather information about the project.`,
 		})
 	}
 
-	// Add user message separately
-	messages = append(messages, Message{
-		Role:    "user",
-		Content: userMessage,
-	})
+    // Add user message separately (only if non-empty)
+    if strings.TrimSpace(userMessage) != "" {
+        messages = append(messages, Message{
+            Role:    "user",
+            Content: userMessage,
+        })
+    }
 
-	return s.client.SendChatRequestWithTools(ctx, messages, tools)
+	return s.client.SendChatRequestWithToolsAndChoice(ctx, messages, tools, toolChoice)
 }
 
 // AnalyzeCode analyzes code and provides suggestions
@@ -278,14 +291,16 @@ Provide clear, actionable advice and explanations.`,
 
 // ChatWithHistoryContextStream sends a streaming chat request with conversation history and code context
 func (s *Service) ChatWithHistoryContextStream(ctx context.Context, conversationHistory []Message, contextPrompt, userMessage string) (StreamReader, error) {
-	messages := []Message{
-		{
-			Role: "system",
-			Content: `You are an expert software engineer and code reviewer.
+    messages := []Message{
+        {
+            Role: "system",
+            Content: `You are an expert software engineer and code reviewer.
 You help developers understand, improve, and debug their code.
-Provide clear, actionable advice and explanations.`,
-		},
-	}
+Provide clear, actionable advice and explanations.
+
+CRITICAL: If tool results are already present in the conversation history, you MUST use those results to answer. Do not ignore tool outputs or hallucinate different information. Always base your response on the actual tool results provided.`,
+        },
+    }
 
 	messages = append(messages, conversationHistory...)
 
@@ -297,26 +312,35 @@ Provide clear, actionable advice and explanations.`,
 		})
 	}
 
-	// Add user message separately
-	messages = append(messages, Message{
-		Role:    "user",
-		Content: userMessage,
-	})
+    // Add user message separately (only if non-empty)
+    if strings.TrimSpace(userMessage) != "" {
+        messages = append(messages, Message{
+            Role:    "user",
+            Content: userMessage,
+        })
+    }
 
 	return s.client.SendChatRequestStream(ctx, messages)
 }
 
 // ChatWithHistoryContextStreamWithTools sends a streaming chat request with tools, conversation history and code context
 func (s *Service) ChatWithHistoryContextStreamWithTools(ctx context.Context, conversationHistory []Message, contextPrompt, userMessage string, tools []Tool) (StreamReader, error) {
-	messages := []Message{
-		{
-			Role: "system",
-			Content: `You are an expert software engineer and code reviewer.
+	return s.ChatWithHistoryContextStreamWithToolsAndChoice(ctx, conversationHistory, contextPrompt, userMessage, tools, "auto")
+}
+
+// ChatWithHistoryContextStreamWithToolsAndChoice sends a streaming chat request with tools, conversation history, code context and specified tool choice
+func (s *Service) ChatWithHistoryContextStreamWithToolsAndChoice(ctx context.Context, conversationHistory []Message, contextPrompt, userMessage string, tools []Tool, toolChoice string) (StreamReader, error) {
+    messages := []Message{
+        {
+            Role: "system",
+            Content: `You are an expert software engineer and code reviewer.
 You help developers understand, improve, and debug their code.
 Provide clear, actionable advice and explanations.
-You have access to tools to help you gather information about the project.`,
-		},
-	}
+You have access to tools to help you gather information about the project.
+
+CRITICAL: If tool results are already present in the conversation history, you MUST use those results to answer. Do not ignore tool outputs or hallucinate different information. Always base your response on the actual tool results provided.`,
+        },
+    }
 
 	messages = append(messages, conversationHistory...)
 
@@ -328,11 +352,13 @@ You have access to tools to help you gather information about the project.`,
 		})
 	}
 
-	// Add user message separately
-	messages = append(messages, Message{
-		Role:    "user",
-		Content: userMessage,
-	})
+    // Add user message separately (only if non-empty)
+    if strings.TrimSpace(userMessage) != "" {
+        messages = append(messages, Message{
+            Role:    "user",
+            Content: userMessage,
+        })
+    }
 
-	return s.client.SendChatRequestStreamWithTools(ctx, messages, tools)
+	return s.client.SendChatRequestStreamWithToolsAndChoice(ctx, messages, tools, toolChoice)
 }
