@@ -1418,12 +1418,24 @@ func (m *NewModel) handleToolExecutionComplete(msg ToolExecutionCompleteMsg) tea
 	// Show tool output
 	m.addMessage("system", fmt.Sprintf("🔧 %s result:\n\n%s", msg.ToolCall.Function.Name, msg.Result.Output))
 
-	// Add only tool result to API messages for conversation context
-	// Do NOT add the assistant message with ToolCalls to prevent re-execution
+	// Add assistant message with tool calls and tool result to API messages
+	// This maintains proper conversation structure for the AI
+	m.apiMessages = append(m.apiMessages, api.Message{
+		Role:      "assistant",
+		Content:   "", // Empty content for tool call message
+		ToolCalls: []api.ToolCall{msg.ToolCall},
+	})
+
 	m.apiMessages = append(m.apiMessages, api.Message{
 		Role:       "tool",
 		Content:    msg.Result.Output,
 		ToolCallID: msg.ToolCall.ID,
+	})
+
+	// Add assistant acknowledgment of tool completion to prevent re-execution
+	m.apiMessages = append(m.apiMessages, api.Message{
+		Role:    "assistant",
+		Content: fmt.Sprintf("I have successfully used the %s tool and received the information.", msg.ToolCall.Function.Name),
 	})
 
 	// If there are more pending tool calls, process the next one
