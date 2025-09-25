@@ -1,90 +1,59 @@
-# Binaries for programs and plugins
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
+### Go project ignores (DeeCLI)
 
-# Test binary, built with `go test -c`
-*.test
-
-# Output of the go coverage tool
-*.out
-coverage/
-
-# Dependency directories
-vendor/
-
-# Go workspace file
-go.work
-go.work.sum
-
-# Build output
+# Build artifacts and binaries
 deecli
 deecli-*
 dist/
 build/
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
 
-# IDE and editor files
+# Coverage and test outputs
+*.out
+coverage/
+
+# Go workspace and vendor
+go.work
+go.work.sum
+vendor/
+
+# Local project data
+.deecli/
+ctags
+
+# Editors/IDE files
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 .DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
 
-# LLM and AI assistant files
-.claude/
-claude.json
-.claude-code/
-.cursor/
-cursor.json
-.github/copilot/
-.aider/
-.aider.conf.yml
-
-# Environment and config files with sensitive data
-.env
-.env.local
-.env.*.local
-*.env
-
-# API keys and secrets
-*_api_key*
-*_secret*
-*.key
-*.pem
-
-# User configuration
-.deecli/config.yaml
-.deecli/config.yml
-
-# Session files
-*.db
-*.sqlite
-*.sqlite3
-session.json
-
-# Temporary files
+# Temporary and logs
 tmp/
 temp/
 *.tmp
 *.temp
 *.log
-
-# Debug files
 debug
 __debug_bin*
 
-# OS files
-Thumbs.db
-ehthumbs.db
-Desktop.ini
-$RECYCLE.BIN/
-ctags
-.deecli
+# Environment/secrets
+.env
+.env.local
+.env.*.local
+*.env
+*_api_key*
+*_secret*
+*.key
+*.pem
 
-# Git internal files
+# Git internal (typically unneeded in commits)
 .git/COMMIT_EDITMSG
 COMMIT_EDITMSG
-
