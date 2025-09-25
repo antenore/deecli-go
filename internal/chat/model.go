@@ -15,6 +15,7 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -34,7 +35,10 @@ import (
 	"github.com/antenore/deecli/internal/editor"
 	"github.com/antenore/deecli/internal/files"
 	"github.com/antenore/deecli/internal/history"
+	"github.com/antenore/deecli/internal/permissions"
 	"github.com/antenore/deecli/internal/sessions"
+	"github.com/antenore/deecli/internal/tools"
+	"github.com/antenore/deecli/internal/tools/functions"
 	"github.com/antenore/deecli/internal/utils"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -86,6 +90,15 @@ type NewModel struct {
 	streamingManager *streaming.Manager // Streaming operations manager
 	streamReader     api.StreamReader   // Current stream reader
 	streamContent    string             // Accumulated stream content
+
+	// Function calling support
+	toolsRegistry      *tools.Registry           // Registry of available tools
+	toolsExecutor      *tools.Executor           // Executor for running tools
+	permissionManager  *permissions.Manager     // Permission manager for tools
+	approvalHandler    *ui.ApprovalHandler      // Approval UI handler
+	approvalDialog     *ui.ApprovalDialog       // Current approval dialog (if showing)
+	showingApproval    bool                     // Whether approval dialog is showing
+	pendingToolCalls   []api.ToolCall           // Tool calls waiting to be executed
 }
 
 // initializeComponents creates common components needed by both constructors
@@ -211,6 +224,27 @@ func newChatModelInternal(configManager *config.Manager, apiKey, model string, t
 		streamingManager: streaming.NewManager(), // Initialize streaming manager
 	}
 
+	// Initialize function calling support
+	if configManager != nil {
+		// Register all built-in tools
+		if err := functions.RegisterAll(); err != nil {
+			// Log error but continue
+			fmt.Fprintf(os.Stderr, "Warning: Failed to register tools: %v\n", err)
+		}
+
+		// Initialize tools components
+		chatModel.toolsRegistry = tools.DefaultRegistry
+		chatModel.approvalHandler = ui.NewApprovalHandler()
+		chatModel.permissionManager = permissions.NewManager(configManager, chatModel.approvalHandler)
+		chatModel.toolsExecutor = tools.NewExecutor(chatModel.toolsRegistry, chatModel.permissionManager)
+
+		// Set available tools in AI operations
+		if chatModel.toolsRegistry != nil {
+			availableTools := chatModel.toolsRegistry.GetAPITools()
+			chatModel.aiOperations.SetAvailableTools(availableTools)
+		}
+	}
+
 	// Initialize message manager
 	chatModel.messageManager = messages.NewManager(messages.Dependencies{
 		Renderer:       chatModel.renderer,
@@ -322,6 +356,7 @@ func (m *NewModel) createCommandDependencies() commands.Dependencies {
 		CurrentSession:   m.currentSession,
 		HistoryManager:   historyManager,
 		FileTracker:      m.fileTracker,
+		ToolsRegistry:    m.toolsRegistry,
 		Messages:         m.messages,
 		APIMessages:      m.apiMessages,
 		InputHistory:     inputHistory,
@@ -457,6 +492,16 @@ func (m *NewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ai.APIResponseMsg:
 		m.handleAPIResponse(msg.Response, msg.Err)
 
+	case ai.ToolCallsResponseMsg:
+		if cmd := m.handleToolCallsResponse(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+	case ToolExecutionCompleteMsg:
+		if cmd := m.handleToolExecutionComplete(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
 	case ai.StreamStartedMsg:
 		// Use streaming manager to handle stream start
 		if cmd := m.setLoading(true, "Thinking..."); cmd != nil {
@@ -530,11 +575,22 @@ func (m *NewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 
 	case tea.KeyMsg:
-		// Handle key detection mode first (highest priority)
+		// Handle tool approval dialog first (highest priority)
+		if m.showingApproval && m.approvalDialog != nil {
+			done, response := m.approvalDialog.Update(msg.String())
+			if done && response != nil {
+				m.showingApproval = false
+				m.approvalDialog = nil
+				return m, m.executeApprovedTool(*response)
+			}
+			return m, nil // Dialog is still active
+		}
+
+		// Handle key detection mode (second priority)
 		if m.keyDetector != nil && m.keyDetector.IsDetecting() {
 			return m, m.keyDetector.HandleDetection(msg.String())
 		}
-		
+
 		// First handle global keys that work regardless of focus
 		switch msg.String() {
 		case "ctrl+c":
@@ -841,9 +897,20 @@ func (m NewModel) View() string {
 	}
 	footer := m.layoutManager.RenderFooter(inputArea, completions, completionIndex, m.width)
 
-	// Combine all parts: header + main content + footer
-	// This ensures header stays fixed at top while viewport scrolls
-	return fmt.Sprintf("%s\n%s\n%s", header, mainContent, footer)
+	// Check if approval dialog should be shown
+	baseView := fmt.Sprintf("%s\n%s\n%s", header, mainContent, footer)
+
+	// Overlay approval dialog if showing
+	if m.showingApproval && m.approvalDialog != nil {
+		// Overlay the approval dialog on top of the main view
+		dialogView := m.approvalDialog.View()
+
+		// Simple overlay - just append at the end for now
+		// In a more sophisticated implementation, you'd overlay the dialog in the center
+		return baseView + "\n\n" + dialogView
+	}
+
+	return baseView
 }
 
 // renderFilesSidebar creates the files sidebar content
@@ -1176,6 +1243,147 @@ func (m *NewModel) loadPreviousSession() error {
 	// Update local references for backward compatibility
 	m.messages = messages
 	m.apiMessages = apiMessages
+
+	return nil
+}
+
+// handleToolCallsResponse handles AI responses that request tool executions
+func (m *NewModel) handleToolCallsResponse(msg ai.ToolCallsResponseMsg) tea.Cmd {
+	if m.toolsExecutor == nil {
+		m.addMessage("system", "❌ Tools not available in this session")
+		return nil
+	}
+
+	// Store the pending tool calls
+	m.pendingToolCalls = msg.ToolCalls
+
+	// Show the first tool call for approval
+	if len(msg.ToolCalls) > 0 {
+		return m.requestToolApproval(msg.ToolCalls[0])
+	}
+
+	return nil
+}
+
+// requestToolApproval shows approval dialog for a tool call
+func (m *NewModel) requestToolApproval(toolCall api.ToolCall) tea.Cmd {
+	if m.approvalHandler == nil {
+		m.addMessage("system", "❌ Approval system not available")
+		return nil
+	}
+
+	// Parse tool call arguments
+	var args map[string]interface{}
+	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
+		args = map[string]interface{}{"raw": toolCall.Function.Arguments}
+	}
+
+	// Get tool description
+	description := fmt.Sprintf("Execute %s", toolCall.Function.Name)
+	if tool, exists := m.toolsRegistry.Get(toolCall.Function.Name); exists {
+		description = tool.Description()
+	}
+
+	// Create approval request
+	approvalReq := tools.ApprovalRequest{
+		FunctionName: toolCall.Function.Name,
+		Description:  description,
+		Arguments:    args,
+	}
+
+	// Show approval dialog
+	m.approvalDialog = ui.NewApprovalDialog(approvalReq, m.width, m.height)
+	m.showingApproval = true
+
+	// Request approval (this will be handled by the approval dialog)
+	return nil
+}
+
+// executeApprovedTool executes a tool after user approval
+func (m *NewModel) executeApprovedTool(response tools.ApprovalResponse) tea.Cmd {
+	if !response.Approved || len(m.pendingToolCalls) == 0 {
+		m.addMessage("system", "🔧 Tool execution cancelled")
+		m.pendingToolCalls = nil
+		return nil
+	}
+
+	// Get the first pending tool call
+	toolCall := m.pendingToolCalls[0]
+	m.pendingToolCalls = m.pendingToolCalls[1:] // Remove from queue
+
+	// Show execution message
+	m.addMessage("system", fmt.Sprintf("🔧 Executing %s...", toolCall.Function.Name))
+
+	// Execute the tool
+	return func() tea.Msg {
+		// Parse arguments
+		var args json.RawMessage = []byte(toolCall.Function.Arguments)
+
+		// Execute the tool
+		result, err := m.toolsExecutor.ExecuteWithoutPermission(context.Background(), toolCall.Function.Name, args)
+		if err != nil {
+			return ToolExecutionCompleteMsg{
+				ToolCall: toolCall,
+				Result:   nil,
+				Error:    err,
+			}
+		}
+
+		return ToolExecutionCompleteMsg{
+			ToolCall: toolCall,
+			Result:   result,
+			Error:    nil,
+		}
+	}
+}
+
+// ToolExecutionCompleteMsg represents completion of tool execution
+type ToolExecutionCompleteMsg struct {
+	ToolCall api.ToolCall
+	Result   *tools.ExecutionResult
+	Error    error
+}
+
+// handleToolExecutionComplete handles the completion of tool execution
+func (m *NewModel) handleToolExecutionComplete(msg ToolExecutionCompleteMsg) tea.Cmd {
+	if msg.Error != nil {
+		m.addMessage("system", fmt.Sprintf("❌ Tool execution failed: %v", msg.Error))
+		return nil
+	}
+
+	if msg.Result == nil {
+		m.addMessage("system", "❌ Tool execution returned no result")
+		return nil
+	}
+
+	if !msg.Result.Success {
+		m.addMessage("system", fmt.Sprintf("❌ Tool execution failed: %s", msg.Result.Error))
+		return nil
+	}
+
+	// Show tool output
+	m.addMessage("system", fmt.Sprintf("🔧 %s result:\n\n%s", msg.ToolCall.Function.Name, msg.Result.Output))
+
+	// Add tool call and result to API messages for conversation context
+	m.apiMessages = append(m.apiMessages, api.Message{
+		Role:      "assistant",
+		Content:   "",
+		ToolCalls: []api.ToolCall{msg.ToolCall},
+	})
+
+	m.apiMessages = append(m.apiMessages, api.Message{
+		Role:       "tool",
+		Content:    msg.Result.Output,
+		ToolCallID: msg.ToolCall.ID,
+	})
+
+	// If there are more pending tool calls, process the next one
+	if len(m.pendingToolCalls) > 0 {
+		return m.requestToolApproval(m.pendingToolCalls[0])
+	}
+
+	// All tools complete - let the AI continue with the enhanced context
+	m.addMessage("system", "✨ AI can now use this information to help you better!")
 
 	return nil
 }

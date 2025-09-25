@@ -88,11 +88,16 @@ func NewDeepSeekClient(apiKey, model string, temperature float64, maxTokens int)
 
 // SendChatRequest sends a chat completion request
 func (client *DeepSeekClient) SendChatRequest(ctx context.Context, messages []Message) (string, error) {
-	return client.sendChatRequestWithRetryContext(ctx, messages)
+	return client.sendChatRequestWithRetryContext(ctx, messages, nil)
+}
+
+// SendChatRequestWithTools sends a chat completion request with function calling tools
+func (client *DeepSeekClient) SendChatRequestWithTools(ctx context.Context, messages []Message, tools []Tool) (*ChatResponse, error) {
+	return client.sendChatRequestWithToolsAndRetry(ctx, messages, tools)
 }
 
 // sendChatRequestWithRetryContext sends a chat request with retry logic and context cancellation
-func (client *DeepSeekClient) sendChatRequestWithRetryContext(ctx context.Context, messages []Message) (string, error) {
+func (client *DeepSeekClient) sendChatRequestWithRetryContext(ctx context.Context, messages []Message, tools []Tool) (string, error) {
 	var lastErr error
 
 	for attempt := 0; attempt <= client.maxRetries; attempt++ {
@@ -115,7 +120,7 @@ func (client *DeepSeekClient) sendChatRequestWithRetryContext(ctx context.Contex
 			}
 		}
 
-		result, err := client.sendSingleRequestWithContext(ctx, messages)
+		result, err := client.sendSingleRequestWithContext(ctx, messages, tools)
 		if err == nil {
 			return result, nil
 		}
@@ -136,8 +141,53 @@ func (client *DeepSeekClient) sendChatRequestWithRetryContext(ctx context.Contex
 	return "", fmt.Errorf("failed after %d attempts: %w", client.maxRetries+1, lastErr)
 }
 
-// sendSingleRequestWithContext makes a single API request with context support for cancellation
-func (client *DeepSeekClient) sendSingleRequestWithContext(ctx context.Context, messages []Message) (string, error) {
+// sendChatRequestWithToolsAndRetry sends a chat request with tools and returns full response
+func (client *DeepSeekClient) sendChatRequestWithToolsAndRetry(ctx context.Context, messages []Message, tools []Tool) (*ChatResponse, error) {
+	var lastErr error
+
+	for attempt := 0; attempt <= client.maxRetries; attempt++ {
+		if attempt > 0 {
+			// Exponential backoff with jitter
+			delay := time.Duration(float64(client.baseDelay) * math.Pow(2, float64(attempt-1)))
+			if delay > 30*time.Second {
+				delay = 30 * time.Second
+			}
+			time.Sleep(delay)
+		}
+
+		// Check if context was cancelled before making request
+		if ctx.Err() == context.Canceled {
+			return nil, APIError{
+				StatusCode:  0,
+				Message:     "request cancelled by user",
+				Retryable:   false,
+				UserMessage: "Request cancelled",
+			}
+		}
+
+		result, err := client.sendSingleRequestWithToolsAndContext(ctx, messages, tools)
+		if err == nil {
+			return result, nil
+		}
+
+		lastErr = err
+
+		// Check if error is retryable
+		if apiErr, ok := err.(APIError); ok && !apiErr.Retryable {
+			return nil, apiErr
+		}
+
+		// Don't retry on the last attempt
+		if attempt == client.maxRetries {
+			break
+		}
+	}
+
+	return nil, fmt.Errorf("failed after %d attempts: %w", client.maxRetries+1, lastErr)
+}
+
+// sendSingleRequestWithToolsAndContext makes a single API request with tools and returns full response
+func (client *DeepSeekClient) sendSingleRequestWithToolsAndContext(ctx context.Context, messages []Message, tools []Tool) (*ChatResponse, error) {
 	// Update activity timestamp
 	client.updateActivity()
 
@@ -146,6 +196,96 @@ func (client *DeepSeekClient) sendSingleRequestWithContext(ctx context.Context, 
 		Model:     client.model,
 		Messages:  messages,
 		MaxTokens: client.maxTokens,
+		Tools:     tools,
+	}
+
+	// Only add temperature for non-reasoner models
+	if client.model != "deepseek-reasoner" {
+		request.Temperature = client.temperature
+	}
+
+	jsonData, err := json.Marshal(request)
+	if err != nil {
+		return nil, APIError{
+			StatusCode:  0,
+			Message:     fmt.Sprintf("failed to marshal request: %v", err),
+			Retryable:   false,
+			UserMessage: "Request formatting error. Please try again.",
+		}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", client.baseURL+"/chat/completions", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, APIError{
+			StatusCode:  0,
+			Message:     fmt.Sprintf("failed to create request: %v", err),
+			Retryable:   false,
+			UserMessage: "Request creation error. Please try again.",
+		}
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+client.apiKey)
+
+	resp, err := client.httpClient.Do(req)
+	if err != nil {
+		// Check if context was cancelled
+		if ctx.Err() == context.Canceled {
+			return nil, APIError{
+				StatusCode:  0,
+				Message:     "request cancelled by user",
+				Retryable:   false,
+				UserMessage: "Request cancelled",
+			}
+		}
+		// Network errors are generally retryable
+		return nil, APIError{
+			StatusCode:  0,
+			Message:     fmt.Sprintf("request failed: %v", err),
+			Retryable:   true,
+			UserMessage: "Network error. Retrying...",
+		}
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, APIError{
+			StatusCode:  resp.StatusCode,
+			Message:     fmt.Sprintf("failed to read response: %v", err),
+			Retryable:   true,
+			UserMessage: "Error reading response. Retrying...",
+		}
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, client.handleHTTPError(resp.StatusCode, body)
+	}
+
+	var chatResp ChatResponse
+	if err := json.Unmarshal(body, &chatResp); err != nil {
+		return nil, APIError{
+			StatusCode:  resp.StatusCode,
+			Message:     fmt.Sprintf("failed to unmarshal response: %v", err),
+			Retryable:   false,
+			UserMessage: "Invalid API response format. Please try again.",
+		}
+	}
+
+	return &chatResp, nil
+}
+
+// sendSingleRequestWithContext makes a single API request with context support for cancellation
+func (client *DeepSeekClient) sendSingleRequestWithContext(ctx context.Context, messages []Message, tools []Tool) (string, error) {
+	// Update activity timestamp
+	client.updateActivity()
+
+	// DeepSeek reasoner model doesn't support temperature parameter
+	request := ChatRequest{
+		Model:     client.model,
+		Messages:  messages,
+		MaxTokens: client.maxTokens,
+		Tools:     tools,
 	}
 
 	// Only add temperature for non-reasoner models
@@ -299,7 +439,7 @@ func (client *DeepSeekClient) WarmUp() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	_, err := client.sendSingleRequestWithContext(ctx, warmupMsg)
+	_, err := client.sendSingleRequestWithContext(ctx, warmupMsg, nil)
 
 	// Restore original values
 	client.maxTokens = origMaxTokens

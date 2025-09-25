@@ -87,6 +87,8 @@ func (h *Handler) Handle(input string) tea.Cmd {
 		return h.systemCommands.Quit(args)
 	case "/create":
 		return h.systemCommands.Create(args)
+	case "/tools":
+		return h.systemCommands.Tools(args)
 
 	default:
 		h.systemCommands.ShowUnknownCommand(command)

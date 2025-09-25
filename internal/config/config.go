@@ -24,22 +24,29 @@ import (
 )
 
 type Config struct {
-	APIKey           string             `yaml:"api_key"`
-	Model            string             `yaml:"model"`
-	Temperature      float64            `yaml:"temperature"`
-	MaxTokens        int                `yaml:"max_tokens"`
-	UserName         string             `yaml:"user_name,omitempty"`              // User display name in chat
-	NewlineKey       string             `yaml:"newline_key,omitempty"`
-	HistoryBackKey   string             `yaml:"history_back_key,omitempty"`
-	HistoryForwardKey string            `yaml:"history_forward_key,omitempty"`
-	Profiles         map[string]Profile `yaml:"profiles,omitempty"`
-	ActiveProfile    string             `yaml:"active_profile,omitempty"`
-	AutoReloadFiles  bool               `yaml:"auto_reload_files,omitempty"`     // Enable file auto-reload
-	AutoReloadDebounce int              `yaml:"auto_reload_debounce,omitempty"`  // Debounce time in ms
-	ShowReloadNotices  bool             `yaml:"show_reload_notices,omitempty"`   // Show reload notifications
-	MaxContextSize   int                `yaml:"max_context_size,omitempty"`      // Max formatted context size in bytes
-	SyntaxHighlight  bool               `yaml:"syntax_highlight,omitempty"`      // Enable syntax highlighting in code blocks
-	CodeBlockStyle   string             `yaml:"code_block_style,omitempty"`      // Style for code blocks: "bordered" or "simple"
+	APIKey           string                    `yaml:"api_key"`
+	Model            string                    `yaml:"model"`
+	Temperature      float64                   `yaml:"temperature"`
+	MaxTokens        int                       `yaml:"max_tokens"`
+	UserName         string                    `yaml:"user_name,omitempty"`              // User display name in chat
+	NewlineKey       string                    `yaml:"newline_key,omitempty"`
+	HistoryBackKey   string                    `yaml:"history_back_key,omitempty"`
+	HistoryForwardKey string                   `yaml:"history_forward_key,omitempty"`
+	Profiles         map[string]Profile        `yaml:"profiles,omitempty"`
+	ActiveProfile    string                    `yaml:"active_profile,omitempty"`
+	AutoReloadFiles  bool                      `yaml:"auto_reload_files,omitempty"`     // Enable file auto-reload
+	AutoReloadDebounce int                     `yaml:"auto_reload_debounce,omitempty"`  // Debounce time in ms
+	ShowReloadNotices  bool                    `yaml:"show_reload_notices,omitempty"`   // Show reload notifications
+	MaxContextSize   int                       `yaml:"max_context_size,omitempty"`      // Max formatted context size in bytes
+	SyntaxHighlight  bool                      `yaml:"syntax_highlight,omitempty"`      // Enable syntax highlighting in code blocks
+	CodeBlockStyle   string                    `yaml:"code_block_style,omitempty"`      // Style for code blocks: "bordered" or "simple"
+	ToolPermissions  map[string]ToolPermission `yaml:"tool_permissions,omitempty"`      // AI tool function permissions
+}
+
+// ToolPermission represents permission settings for AI tool functions
+type ToolPermission struct {
+	Level     string `yaml:"level"`      // "once", "always", or "never"
+	UpdatedAt int64  `yaml:"updated_at"` // Unix timestamp
 }
 
 type Profile struct {
@@ -62,6 +69,7 @@ var (
 		MaxContextSize:   100000, // 100KB formatted context limit
 		SyntaxHighlight:  false,  // Disable syntax highlighting by default for better copying
 		CodeBlockStyle:   "simple", // Use simple style by default for easy copying
+		ToolPermissions:  make(map[string]ToolPermission),
 	}
 )
 
@@ -221,6 +229,10 @@ func (m *Manager) mergeConfigs() *Config {
 		// Merge profiles
 		for name, profile := range m.projectConfig.Profiles {
 			merged.Profiles[name] = profile
+		}
+		// Merge tool permissions (project config takes priority)
+		for name, permission := range m.projectConfig.ToolPermissions {
+			merged.ToolPermissions[name] = permission
 		}
 	}
 

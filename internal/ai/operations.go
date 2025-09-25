@@ -27,6 +27,12 @@ type APIResponseMsg struct {
 	Err      error
 }
 
+// ToolCallsResponseMsg for API calls that request tool execution
+type ToolCallsResponseMsg struct {
+	ToolCalls []api.ToolCall
+	Response  *api.ChatResponse
+}
+
 // StreamChunkMsg represents a chunk of streaming response
 type StreamChunkMsg struct {
 	Content string
@@ -47,6 +53,7 @@ type Operations struct {
 	apiCancel     context.CancelFunc
 	fileContext   *files.FileContext
 	configManager *config.Manager
+	availableTools []api.Tool  // Available function calling tools
 }
 
 // NewOperations creates a new Operations instance
@@ -77,6 +84,16 @@ func (o *Operations) GetAPICancel() context.CancelFunc {
 // SetAPICancel sets the API cancel function
 func (o *Operations) SetAPICancel(cancel context.CancelFunc) {
 	o.apiCancel = cancel
+}
+
+// SetAvailableTools sets the available tools for function calling
+func (o *Operations) SetAvailableTools(tools []api.Tool) {
+	o.availableTools = tools
+}
+
+// GetAvailableTools returns the available tools
+func (o *Operations) GetAvailableTools() []api.Tool {
+	return o.availableTools
 }
 
 // CallAPI makes an API call with context and user input
@@ -125,7 +142,30 @@ func (o *Operations) CallAPI(contextPrompt, userInput string) tea.Cmd {
 	o.apiCancel = cancel
 
 	return func() tea.Msg {
-		// Use the new ChatWithHistory method to include conversation context
+		// Check if we have tools available
+		if len(o.availableTools) > 0 {
+			// Use tools-enabled API call
+			chatResp, err := o.apiClient.ChatWithHistoryContextAndTools(ctx, o.apiMessages, contextPrompt, userInput, o.availableTools)
+			if err != nil {
+				return APIResponseMsg{Response: "", Err: err}
+			}
+
+			// Check if the response contains tool calls
+			if chatResp != nil && len(chatResp.Choices) > 0 && len(chatResp.Choices[0].Message.ToolCalls) > 0 {
+				// Return a special message type for tool calls
+				return ToolCallsResponseMsg{
+					ToolCalls: chatResp.Choices[0].Message.ToolCalls,
+					Response:  chatResp,
+				}
+			}
+
+			// Regular response without tool calls
+			if chatResp != nil && len(chatResp.Choices) > 0 {
+				return APIResponseMsg{Response: chatResp.Choices[0].Message.Content, Err: nil}
+			}
+		}
+
+		// Fallback to regular API call without tools
 		response, err := o.apiClient.ChatWithHistoryContext(ctx, o.apiMessages, contextPrompt, userInput)
 		return APIResponseMsg{Response: response, Err: err}
 	}

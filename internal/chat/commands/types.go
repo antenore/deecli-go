@@ -22,6 +22,7 @@ import (
 	"github.com/antenore/deecli/internal/files"
 	"github.com/antenore/deecli/internal/history"
 	"github.com/antenore/deecli/internal/sessions"
+	"github.com/antenore/deecli/internal/tools"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -35,6 +36,7 @@ type Dependencies struct {
 	CurrentSession   *sessions.Session
 	HistoryManager   *history.Manager
 	FileTracker      *tracker.FileTracker
+	ToolsRegistry    *tools.Registry
 
 	// UI state
 	Messages     []string

@@ -15,6 +15,7 @@ package commands
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/antenore/deecli/internal/editor"
 	tea "github.com/charmbracelet/bubbletea"
@@ -55,6 +56,32 @@ func (sc *SystemCommands) Create(args []string) tea.Cmd {
 		MessageLogger:   sc.deps.MessageLogger,
 	}
 	return editor.CreateAndEditNewFile(args[0], config)
+}
+
+// Tools handles the /tools command
+func (sc *SystemCommands) Tools(args []string) tea.Cmd {
+	if sc.deps.ToolsRegistry == nil {
+		sc.deps.MessageLogger("system", "🔧 Function calling tools are not available in this session")
+		return nil
+	}
+
+	tools := sc.deps.ToolsRegistry.GetAll()
+	if len(tools) == 0 {
+		sc.deps.MessageLogger("system", "🔧 No tools are currently registered")
+		return nil
+	}
+
+	var output strings.Builder
+	output.WriteString("🔧 **Available AI Tools**\n\n")
+
+	for _, tool := range tools {
+		output.WriteString(fmt.Sprintf("**%s**: %s\n", tool.Name(), tool.Description()))
+	}
+
+	output.WriteString("\nAI can autonomously use these tools with your approval to gather information and help with your requests.")
+
+	sc.deps.MessageLogger("system", output.String())
+	return nil
 }
 
 // ShowUnknownCommand handles unknown commands
