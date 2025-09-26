@@ -32,7 +32,7 @@ func (r *ReadFile) Name() string {
 
 // Description returns what this function does
 func (r *ReadFile) Description() string {
-	return "Read contents of a file with optional line range"
+	return "Read a file. Examples: {\"path\":\"TODO.md\"}, {\"path\":\"main.go\"}, {\"path\":\"internal/api/client.go\"}"
 }
 
 // Parameters returns the JSON schema for parameters
@@ -42,18 +42,21 @@ func (r *ReadFile) Parameters() map[string]interface{} {
 		"properties": map[string]interface{}{
 			"path": map[string]interface{}{
 				"type":        "string",
-				"description": "File path to read",
+				"description": "File path to read (required). Examples: 'TODO.md', 'main.go', 'internal/api/client.go'",
 			},
 			"startLine": map[string]interface{}{
 				"type":        "integer",
-				"description": "Starting line number (1-based)",
+				"description": "Starting line number (1-based, optional)",
+				"minimum":     1,
 			},
 			"endLine": map[string]interface{}{
 				"type":        "integer",
-				"description": "Ending line number (1-based)",
+				"description": "Ending line number (1-based, optional)",
+				"minimum":     1,
 			},
 		},
 		"required": []string{"path"},
+		"additionalProperties": false,
 	}
 }
 
@@ -65,28 +68,48 @@ func (r *ReadFile) Execute(ctx context.Context, args json.RawMessage) (string, e
 		StartLine int    `json:"startLine"`
 		EndLine   int    `json:"endLine"`
 	}
+
+	// Handle empty or invalid arguments - provide clear guidance
+	argStr := string(args)
+	if argStr == "" || argStr == "null" || argStr == "{}" {
+		return "", fmt.Errorf("path is required. Use: {\"path\":\"filename\"} e.g., {\"path\":\"TODO.md\"}")
+	}
+
 	if err := json.Unmarshal(args, &params); err != nil {
-		return "", fmt.Errorf("failed to parse arguments: %w", err)
+		// Try to be helpful with common mistakes
+		fmt.Fprintf(os.Stderr, "[DEBUG] Failed to parse read_file args: %s, error: %v\n", argStr, err)
+		
+		// Check if AI sent just a string instead of JSON object
+		trimmed := strings.Trim(argStr, `"' `)
+		if !strings.Contains(trimmed, "{") && !strings.Contains(trimmed, "}") {
+			// Likely just sent "filename" instead of {"path": "filename"}
+			return "", fmt.Errorf("invalid format. Use: {\"path\":\"%s\"} not just \"%s\"", trimmed, trimmed)
+		}
+		return "", fmt.Errorf("invalid JSON format. Use: {\"path\":\"filename\"} e.g., {\"path\":\"TODO.md\"}")
 	}
 
 	if params.Path == "" {
-		return "", fmt.Errorf("file path is required")
+		return "", fmt.Errorf("path is required. Use: {\"path\":\"filename\"} e.g., {\"path\":\"TODO.md\"}")
 	}
 
 	// Open the file
 	file, err := os.Open(params.Path)
 	if err != nil {
-		return "", fmt.Errorf("failed to open file %s: %w", params.Path, err)
+		// Provide helpful suggestions for common issues
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("file not found: %s. Use list_files to see available files", params.Path)
+		}
+		return "", fmt.Errorf("cannot open %s: %w", params.Path, err)
 	}
 	defer file.Close()
 
 	// Check if file is too large (limit to 1MB for safety)
 	info, err := file.Stat()
 	if err != nil {
-		return "", fmt.Errorf("failed to stat file: %w", err)
+		return "", fmt.Errorf("cannot stat file: %w", err)
 	}
 	if info.Size() > 1024*1024 {
-		return "", fmt.Errorf("file too large (%d bytes), limit is 1MB", info.Size())
+		return "", fmt.Errorf("file too large (%d bytes), limit is 1MB. Consider using startLine/endLine to read portions", info.Size())
 	}
 
 	// Read file with optional line range

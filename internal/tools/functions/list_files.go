@@ -33,7 +33,7 @@ func (l *ListFiles) Name() string {
 
 // Description returns what this function does
 func (l *ListFiles) Description() string {
-	return "List files in a directory with optional pattern matching"
+	return "List files in a directory. Examples: {} lists current dir, {\"recursive\":true} lists all files recursively, {\"path\":\"internal\",\"recursive\":true} lists internal/ recursively"
 }
 
 // Parameters returns the JSON schema for parameters
@@ -43,18 +43,21 @@ func (l *ListFiles) Parameters() map[string]interface{} {
 		"properties": map[string]interface{}{
 			"path": map[string]interface{}{
 				"type":        "string",
-				"description": "Directory path to list (default: current directory)",
+				"description": "Directory path to list (default: current directory '.')",
+				"default":     ".",
 			},
 			"pattern": map[string]interface{}{
 				"type":        "string",
-				"description": "Glob pattern to filter files (e.g., '*.go')",
+				"description": "Glob pattern to filter files (e.g., '*.go', '*.md')",
 			},
 			"recursive": map[string]interface{}{
 				"type":        "boolean",
-				"description": "List files recursively",
+				"description": "List files recursively in all subdirectories (default: false)",
+				"default":     false,
 			},
 		},
 		"required": []string{},
+		"additionalProperties": false,
 	}
 }
 
@@ -71,8 +74,11 @@ func (l *ListFiles) Execute(ctx context.Context, args json.RawMessage) (string, 
 	if len(args) == 0 || string(args) == "" || string(args) == "{}" || string(args) == "null" {
 		// Use default values
 		params.Path = "."
+		params.Recursive = false
 	} else if err := json.Unmarshal(args, &params); err != nil {
-		return "", fmt.Errorf("failed to parse arguments: %w", err)
+		// Try to be helpful with malformed JSON
+		fmt.Fprintf(os.Stderr, "[DEBUG] Failed to parse list_files args: %s, error: %v\n", string(args), err)
+		return "", fmt.Errorf("invalid arguments. Use: {} for current dir, {\"recursive\":true} for recursive, or {\"path\":\"dir\",\"recursive\":true}")
 	}
 
 	// Default to current directory

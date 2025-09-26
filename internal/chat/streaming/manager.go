@@ -14,6 +14,8 @@
 package streaming
 
 import (
+	"fmt"
+	"os"
 	"strings"
 	"unicode"
 
@@ -62,8 +64,19 @@ func (sm *Manager) HandleChunk(msg ai.StreamChunkMsg, spinner *ui.Spinner, isLoa
 		return sm.completeStream(sm.streamContent, msg.Err), nil
 	}
 
-	// Append chunk content first
-	sm.streamContent += msg.Content
+	// Filter out tool call markers and detect tool calls
+	filteredContent, toolCallDetected := sm.filterToolCallMarkers(msg.Content)
+	
+	// If we detected a tool call pattern, we should not display this content
+	// and instead let the tool execution system handle it
+	if toolCallDetected {
+		// Don't append the raw tool call content to display
+		// Return early to prevent showing tool call markers
+		return nil, cmds
+	}
+
+	// Append filtered chunk content
+	sm.streamContent += filteredContent
 
 	// Stop spinner only when we have accumulated meaningful content
 	// This ensures the spinner stays visible during the "thinking" phase
@@ -201,6 +214,31 @@ func (sm *Manager) hasMeaningfulContent() bool {
 
 	// Require at least 3 letters/digits and content longer than just tokens
 	return letterCount >= 3 && len(trimmed) >= 8
+}
+
+// filterToolCallMarkers detects and filters out DeepSeek's tool call markup
+// Returns the filtered content and whether tool calls were detected
+func (sm *Manager) filterToolCallMarkers(content string) (string, bool) {
+	// Look for DeepSeek's tool call patterns
+	// Pattern: <｜tool▁calls▁begin｜><｜tool▁call▁begin｜>function_name<｜tool▁sep｜>{"args": "values"}<｜tool▁call▁end｜><｜tool▁calls▁end｜>
+	
+	// Check if content contains tool call markers
+	if strings.Contains(content, "<｜tool▁calls▁begin｜>") ||
+	   strings.Contains(content, "<｜tool▁call▁begin｜>") ||
+	   strings.Contains(content, "<｜tool▁sep｜>") ||
+	   strings.Contains(content, "<｜tool▁call▁end｜>") ||
+	   strings.Contains(content, "<｜tool▁calls▁end｜>") {
+		
+		// Debug log the detected pattern
+		fmt.Fprintf(os.Stderr, "[DEBUG] Tool call markers detected in content: %q\n", content)
+		
+		// For now, just filter out the content completely
+		// TODO: Parse and convert to proper tool calls
+		return "", true
+	}
+	
+	// No tool call markers found, return content as-is
+	return content, false
 }
 
 // StreamCompleteInternalMsg is used internally for stream completion

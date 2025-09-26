@@ -2,6 +2,7 @@ package ai
 
 import (
     "context"
+    "encoding/json"
     "fmt"
     "io"
     "os"
@@ -418,6 +419,17 @@ func ReadNextChunkWithTools(stream api.StreamReader, accumulated string, accumul
 		var toolCalls []api.ToolCall
 		if len(chunk.Choices) > 0 {
 			content = chunk.Choices[0].Delta.Content
+			
+			// Enhanced debug logging for DeepSeek responses
+			if os.Getenv("DEECLI_DEBUG") == "1" && content != "" {
+				fmt.Fprintf(os.Stderr, "[DEBUG] Stream chunk content: %q\n", content)
+				if len(content) > 0 {
+					// Check if content looks like tool call markers
+					if strings.Contains(content, "<") || strings.Contains(content, "tool") {
+						fmt.Fprintf(os.Stderr, "[DEBUG] Suspicious content detected (possible tool markers): %q\n", content)
+					}
+				}
+			}
 
 			// Check for tool calls in the delta
 			if len(chunk.Choices[0].Delta.ToolCalls) > 0 {
@@ -428,8 +440,13 @@ func ReadNextChunkWithTools(stream api.StreamReader, accumulated string, accumul
 				// Debug: log tool call progress (optional, enable with DEECLI_DEBUG=1)
 				if os.Getenv("DEECLI_DEBUG") == "1" {
 					for _, tc := range accumulatedToolCalls {
-						fmt.Printf("Debug: Tool call ID=%s, Name=%s, Args=%q\n", tc.ID, tc.Function.Name, tc.Function.Arguments)
+						fmt.Fprintf(os.Stderr, "[DEBUG] Tool call ID=%s, Name=%s, Args=%q\n", tc.ID, tc.Function.Name, tc.Function.Arguments)
 					}
+				}
+			} else if os.Getenv("DEECLI_DEBUG") == "1" {
+				// Log when no tool calls are found but content exists
+				if content != "" {
+					fmt.Fprintf(os.Stderr, "[DEBUG] No tool_calls in delta, but content present: %q\n", content)
 				}
 			}
 		}
@@ -468,7 +485,24 @@ func mergeToolCalls(accumulated, new []api.ToolCall) []api.ToolCall {
 		if existing, ok := toolMap[newCall.ID]; ok {
 			// Merge arguments (they may come in chunks)
 			if newCall.Function.Arguments != "" {
-				existing.Function.Arguments += newCall.Function.Arguments
+				// Check if we already have arguments - if so, concatenate
+				if existing.Function.Arguments == "" {
+					existing.Function.Arguments = newCall.Function.Arguments
+				} else {
+					// Concatenate carefully - ensure we don't break JSON
+					// This handles cases where arguments are split across chunks
+					existing.Function.Arguments += newCall.Function.Arguments
+					
+					// Validate if we have complete JSON now
+					if os.Getenv("DEECLI_DEBUG") == "1" {
+						var test interface{}
+						if err := json.Unmarshal([]byte(existing.Function.Arguments), &test); err != nil {
+							fmt.Fprintf(os.Stderr, "[DEBUG] Partial JSON accumulated for tool %s: %s\n", existing.Function.Name, existing.Function.Arguments)
+						} else {
+							fmt.Fprintf(os.Stderr, "[DEBUG] Complete JSON for tool %s: %s\n", existing.Function.Name, existing.Function.Arguments)
+						}
+					}
+				}
 			}
 			// Update name if provided
 			if newCall.Function.Name != "" {

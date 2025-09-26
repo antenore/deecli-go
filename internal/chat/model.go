@@ -939,18 +939,15 @@ func (m NewModel) View() string {
 	footer := m.layoutManager.RenderFooter(inputArea, completions, completionIndex, m.width)
 
 	// Check if approval dialog should be shown
-	baseView := fmt.Sprintf("%s\n%s\n%s", header, mainContent, footer)
-
-	// Overlay approval dialog if showing
 	if m.showingApproval && m.approvalDialog != nil {
-		// Overlay the approval dialog on top of the main view
+		// Show only the approval dialog - don't show the main chat interface
+		// This prevents duplication and focuses the user on the approval request
 		dialogView := m.approvalDialog.View()
-
-		// Simple overlay - just append at the end for now
-		// In a more sophisticated implementation, you'd overlay the dialog in the center
-		return baseView + "\n\n" + dialogView
+		return fmt.Sprintf("%s\n%s", header, dialogView)
 	}
 
+	// Normal view when no approval dialog is shown
+	baseView := fmt.Sprintf("%s\n%s\n%s", header, mainContent, footer)
 	return baseView
 }
 
@@ -1084,8 +1081,20 @@ func (m *NewModel) callAPI(contextPrompt, userInput string) tea.Cmd {
     // Stream for any context under the configured limit
     streamingThreshold := maxContextSize
 
-    // Use streaming when enabled and total context is under the configured threshold
-    // Streaming now supports tools via CallAPIStream
+    // TEMPORARY WORKAROUND: Disable streaming when tools are available
+    // DeepSeek appears to send tool calls as text content instead of proper function calls
+    // This causes tool call markers to appear in chat instead of being processed
+    hasTools := m.toolsRegistry != nil && len(m.toolsRegistry.GetAPITools()) > 0
+    
+    if hasTools {
+        // Force non-streaming mode for tool-enabled conversations
+        fmt.Fprintf(os.Stderr, "[DEBUG] Disabling streaming due to tools being available\n")
+        cmd := m.aiOperations.CallAPI(contextPrompt, userInput)
+        m.apiCancel = m.aiOperations.GetAPICancel()
+        return cmd
+    }
+    
+    // Use streaming when enabled, no tools, and total context is under threshold
     if m.streamingEnabled && contextSize < streamingThreshold {
 		cmd := m.aiOperations.CallAPIStream(contextPrompt, userInput)
 		// Store the cancel function
@@ -1166,13 +1175,101 @@ func (m *NewModel) handleAPIResponse(response string, err error) {
 			m.addMessage("system", fmt.Sprintf("❌ Error: %v", err))
 		}
 	} else {
-		m.addMessage("assistant", response)
+		// Check for tool calls in non-streaming response and parse them
+		toolCalls, filteredResponse := m.parseAndExtractToolCalls(response)
+		if len(toolCalls) > 0 {
+			// Handle tool calls like in streaming mode
+			toolMsg := ai.ToolCallsResponseMsg{
+				ToolCalls: toolCalls,
+				Response:  nil,
+			}
+			// Just trigger the approval dialog like in streaming mode
+			m.handleToolCallsResponse(toolMsg)
+		} else {
+			m.addMessage("assistant", filteredResponse)
+		}
 		// Track files mentioned in the AI response
 		if m.fileTracker != nil {
-			m.fileTracker.ExtractFilesFromResponseWithContext(response, m.fileContext.Files)
+			m.fileTracker.ExtractFilesFromResponseWithContext(filteredResponse, m.fileContext.Files)
 		}
 	}
 	m.viewport.GotoBottom()
+}
+
+// parseAndExtractToolCalls parses DeepSeek's tool call markup and extracts proper tool calls
+func (m *NewModel) parseAndExtractToolCalls(content string) ([]api.ToolCall, string) {
+	var toolCalls []api.ToolCall
+
+	// Look for DeepSeek's tool call patterns
+	if !strings.Contains(content, "<｜tool▁calls▁begin｜>") {
+		return toolCalls, content
+	}
+
+	fmt.Fprintf(os.Stderr, "[DEBUG] Parsing tool calls from non-streaming response: %q\n", content)
+
+	filtered := content
+	callID := 1
+
+	// Find all tool call blocks
+	for {
+		start := strings.Index(filtered, "<｜tool▁calls▁begin｜>")
+		if start == -1 {
+			break
+		}
+
+		end := strings.Index(filtered[start:], "<｜tool▁calls▁end｜>")
+		if end == -1 {
+			// Incomplete tool call block, remove and break
+			filtered = filtered[:start]
+			break
+		}
+
+		end += start + len("<｜tool▁calls▁end｜>")
+		toolBlock := filtered[start:end]
+
+		// Extract individual tool calls within the block
+		toolStart := strings.Index(toolBlock, "<｜tool▁call▁begin｜>")
+		for toolStart != -1 {
+			toolEnd := strings.Index(toolBlock[toolStart:], "<｜tool▁call▁end｜>")
+			if toolEnd == -1 {
+				break
+			}
+
+			toolEnd += toolStart
+			individualCall := toolBlock[toolStart+len("<｜tool▁call▁begin｜>"):toolEnd]
+
+			// Split by separator to get function name and arguments
+			sepIndex := strings.Index(individualCall, "<｜tool▁sep｜>")
+			if sepIndex != -1 {
+				functionName := strings.TrimSpace(individualCall[:sepIndex])
+				argsJSON := strings.TrimSpace(individualCall[sepIndex+len("<｜tool▁sep｜>"):])
+
+				if functionName != "" && argsJSON != "" {
+					toolCall := api.ToolCall{
+						ID: fmt.Sprintf("call_%d", callID),
+						Type: "function",
+					}
+					toolCall.Function.Name = functionName
+					toolCall.Function.Arguments = argsJSON
+					toolCalls = append(toolCalls, toolCall)
+					callID++
+
+					fmt.Fprintf(os.Stderr, "[DEBUG] Extracted tool call: %s with args: %s\n", functionName, argsJSON)
+				}
+			}
+
+			// Find next tool call in this block
+			toolStart = strings.Index(toolBlock[toolEnd+len("<｜tool▁call▁end｜>"):], "<｜tool▁call▁begin｜>")
+			if toolStart != -1 {
+				toolStart += toolEnd + len("<｜tool▁call▁end｜>")
+			}
+		}
+
+		// Remove the entire tool call block from the content
+		filtered = filtered[:start] + filtered[end:]
+	}
+
+	return toolCalls, strings.TrimSpace(filtered)
 }
 
 // handleStreamCompleteInternal handles completion from streaming manager
@@ -1314,17 +1411,29 @@ func (m *NewModel) requestToolApproval(toolCall api.ToolCall) tea.Cmd {
 		return nil
 	}
 
+	// Enhanced debug logging
+	fmt.Fprintf(os.Stderr, "\n[DEBUG] ========== Tool Approval Request ==========\n")
+	fmt.Fprintf(os.Stderr, "[DEBUG] Tool: %s\n", toolCall.Function.Name)
+	fmt.Fprintf(os.Stderr, "[DEBUG] Raw arguments from AI: %q\n", toolCall.Function.Arguments)
+	fmt.Fprintf(os.Stderr, "[DEBUG] Arguments length: %d\n", len(toolCall.Function.Arguments))
+	
 	// Parse tool call arguments
 	var args map[string]interface{}
 
 	// Handle empty or invalid arguments
 	if toolCall.Function.Arguments == "" || toolCall.Function.Arguments == "null" {
 		// Use empty object for tools that don't require arguments
+		fmt.Fprintf(os.Stderr, "[DEBUG] Empty/null arguments detected, defaulting to empty map\n")
 		args = map[string]interface{}{}
 	} else if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
+		fmt.Fprintf(os.Stderr, "[DEBUG] JSON parse error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "[DEBUG] Attempting to use empty map as fallback\n")
 		// If parsing fails and it's not empty, try to use defaults
 		args = map[string]interface{}{}
+	} else {
+		fmt.Fprintf(os.Stderr, "[DEBUG] Successfully parsed arguments: %+v\n", args)
 	}
+	fmt.Fprintf(os.Stderr, "[DEBUG] ==========================================\n\n")
 
 	// Get tool description
 	description := fmt.Sprintf("Execute %s", toolCall.Function.Name)

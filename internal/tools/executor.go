@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 )
 
@@ -43,6 +44,16 @@ func NewExecutor(registry *Registry, permissions PermissionManager) *Executor {
 
 // Execute runs a tool function with permission checks
 func (e *Executor) Execute(ctx context.Context, request ExecutionRequest, projectPath string) (*ExecutionResult, error) {
+	// Enhanced debug logging for tool execution
+	fmt.Fprintf(os.Stderr, "\n[DEBUG] ========== Tool Execution ==========\n")
+	fmt.Fprintf(os.Stderr, "[DEBUG] Function: %s\n", request.FunctionName)
+	if len(request.Arguments) > 0 {
+		fmt.Fprintf(os.Stderr, "[DEBUG] Arguments: %s\n", string(request.Arguments))
+		fmt.Fprintf(os.Stderr, "[DEBUG] Arguments length: %d\n", len(request.Arguments))
+	} else {
+		fmt.Fprintf(os.Stderr, "[DEBUG] No arguments provided\n")
+	}
+	fmt.Fprintf(os.Stderr, "[DEBUG] ====================================\n")
 	// Get the tool function
 	tool, exists := e.registry.Get(request.FunctionName)
 	if !exists {
@@ -114,11 +125,14 @@ func (e *Executor) Execute(ctx context.Context, request ExecutionRequest, projec
 
 	output, err := tool.Execute(execCtx, request.Arguments)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "[DEBUG] Tool execution failed: %s - %v\n", request.FunctionName, err)
 		return &ExecutionResult{
 			Success: false,
 			Error:   err.Error(),
 		}, nil
 	}
+
+	fmt.Fprintf(os.Stderr, "[DEBUG] Tool execution successful: %s\n", request.FunctionName)
 
 	return &ExecutionResult{
 		Success: true,

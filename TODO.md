@@ -2,9 +2,22 @@
 
 Focus: Keep It Simple (KISS). Ship working tools that developers actually need.
 
+## P0 — Tool Function Fixes (URGENT)
+**Goal**: Fix AI tool argument passing and file discovery issues
+
+### Issues to Fix:
+- **list_files**: AI doesn't know to use `recursive:true` for subdirectory exploration
+- **read_file**: AI fails to pass filenames correctly in `path` parameter
+
+### Solutions:
+- Update tool descriptions with usage hints (minimal context)
+- Add one-line system prompt for tool usage guidance
+- Improve error messages when arguments are missing
+- Add debug logging for tool execution troubleshooting
+
 ## P0 — Core Stability (✅ DONE)
 - ✅ Multi-round conversation context
-- ✅ Streaming reliability  
+- ✅ Streaming reliability
 - ✅ Context window management
 - ✅ File loading UX (additive /load, /unload, .gitignore respect)
 - ✅ Terminal-friendly output (raw code by default, F3 toggles)

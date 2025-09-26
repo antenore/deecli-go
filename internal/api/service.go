@@ -16,6 +16,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/antenore/deecli/internal/files"
@@ -40,7 +41,7 @@ func (s *Service) ChatAboutCode(code, userMessage string) (string, error) {
 You help developers understand, improve, and debug their code.
 Provide clear, actionable advice and explanations.
 
-CRITICAL: If tool results are already present in the conversation history, you MUST use those results to answer. Do not ignore tool outputs or hallucinate different information. Always base your response on the actual tool results provided.`,
+CRITICAL: When calling tools, you MUST provide proper JSON arguments. Empty arguments will cause tools to fail. For read_file, ALWAYS include {"path": "filename"}. Never send null, empty string, or malformed JSON as arguments.`,
         },
     }
 
@@ -111,7 +112,27 @@ You help developers understand, improve, and debug their code.
 Provide clear, actionable advice and explanations.
 You have access to tools to help you gather information about the project.
 
-CRITICAL: If tool results are already present in the conversation history, you MUST use those results to answer. Do not ignore tool outputs or hallucinate different information. Always base your response on the actual tool results provided.`,
+Tool Usage Guidelines:
+1. list_files - List files in directories
+   - List current directory: {}
+   - List all files recursively: {"recursive": true}
+   - List specific folder: {"path": "internal"}
+   - List folder recursively: {"path": "internal", "recursive": true}
+   - Filter by pattern: {"path": ".", "pattern": "*.go", "recursive": true}
+
+2. read_file - Read file contents (ALWAYS REQUIRES path parameter)
+   - Read entire file: {"path": "TODO.md"}
+   - Read with path: {"path": "internal/api/client.go"}
+   - Read lines 10-50: {"path": "main.go", "startLine": 10, "endLine": 50}
+
+CRITICAL RULES:
+- ALWAYS provide arguments in valid JSON format
+- NEVER call a tool without arguments (use {} for no args, not empty/null)
+- read_file ALWAYS needs {"path": "filename"} - NEVER call it without path
+- If user asks to read "X", you must call read_file with {"path": "X"}
+- Tool calls without proper JSON arguments WILL FAIL
+- Start with list_files {"recursive": true} to see all files
+- Tool results appear as role:"tool" messages - use those results`,
         },
     }
 
@@ -133,6 +154,10 @@ CRITICAL: If tool results are already present in the conversation history, you M
         })
     }
 
+	// Debug: log tools being sent
+	for _, tool := range tools {
+		fmt.Fprintf(os.Stderr, "[DEBUG] Sending tool to API: %s - %s\n", tool.Function.Name, tool.Function.Description)
+	}
 	return s.client.SendChatRequestWithToolsAndChoice(ctx, messages, tools, toolChoice)
 }
 
@@ -338,7 +363,27 @@ You help developers understand, improve, and debug their code.
 Provide clear, actionable advice and explanations.
 You have access to tools to help you gather information about the project.
 
-CRITICAL: If tool results are already present in the conversation history, you MUST use those results to answer. Do not ignore tool outputs or hallucinate different information. Always base your response on the actual tool results provided.`,
+Tool Usage Guidelines:
+1. list_files - List files in directories
+   - List current directory: {}
+   - List all files recursively: {"recursive": true}
+   - List specific folder: {"path": "internal"}
+   - List folder recursively: {"path": "internal", "recursive": true}
+   - Filter by pattern: {"path": ".", "pattern": "*.go", "recursive": true}
+
+2. read_file - Read file contents (ALWAYS REQUIRES path parameter)
+   - Read entire file: {"path": "TODO.md"}
+   - Read with path: {"path": "internal/api/client.go"}
+   - Read lines 10-50: {"path": "main.go", "startLine": 10, "endLine": 50}
+
+CRITICAL RULES:
+- ALWAYS provide arguments in valid JSON format
+- NEVER call a tool without arguments (use {} for no args, not empty/null)
+- read_file ALWAYS needs {"path": "filename"} - NEVER call it without path
+- If user asks to read "X", you must call read_file with {"path": "X"}
+- Tool calls without proper JSON arguments WILL FAIL
+- Start with list_files {"recursive": true} to see all files
+- Tool results appear as role:"tool" messages - use those results`,
         },
     }
 
