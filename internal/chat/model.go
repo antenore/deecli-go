@@ -15,7 +15,6 @@ package chat
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -23,11 +22,14 @@ import (
 
 	"github.com/antenore/deecli/internal/ai"
 	"github.com/antenore/deecli/internal/api"
+	apiHandler "github.com/antenore/deecli/internal/chat/api"
 	"github.com/antenore/deecli/internal/chat/commands"
+	"github.com/antenore/deecli/internal/debug"
 	"github.com/antenore/deecli/internal/chat/input"
 	"github.com/antenore/deecli/internal/chat/keydetect"
 	"github.com/antenore/deecli/internal/chat/messages"
 	"github.com/antenore/deecli/internal/chat/streaming"
+	toolsManager "github.com/antenore/deecli/internal/chat/tools"
 	"github.com/antenore/deecli/internal/chat/tracker"
 	"github.com/antenore/deecli/internal/chat/ui"
 	viewportmgr "github.com/antenore/deecli/internal/chat/viewport"
@@ -91,14 +93,18 @@ type NewModel struct {
 	streamReader     api.StreamReader   // Current stream reader
 	streamContent    string             // Accumulated stream content
 
-	// Function calling support
+	// API response handling - now managed by apiHandler
+	apiResponseHandler *apiHandler.Handler      // Handles API response processing
+
+	// Function calling support - now managed by toolsManager
+	toolsManager       *toolsManager.Manager    // Manages all tool execution and approval
+
+	// Keep these for backward compatibility during migration
 	toolsRegistry      *tools.Registry           // Registry of available tools
 	toolsExecutor      *tools.Executor           // Executor for running tools
 	permissionManager  *permissions.Manager     // Permission manager for tools
 	approvalHandler    *ui.ApprovalHandler      // Approval UI handler
-	approvalDialog     *ui.ApprovalDialog       // Current approval dialog (if showing)
-	showingApproval    bool                     // Whether approval dialog is showing
-	pendingToolCalls   []api.ToolCall           // Tool calls waiting to be executed
+	// Tool-related fields now managed by toolsManager
 }
 
 // initializeComponents creates common components needed by both constructors
@@ -237,6 +243,19 @@ func newChatModelInternal(configManager *config.Manager, apiKey, model string, t
 		chatModel.approvalHandler = ui.NewApprovalHandler()
 		chatModel.permissionManager = permissions.NewManager(configManager, chatModel.approvalHandler)
 		chatModel.toolsExecutor = tools.NewExecutor(chatModel.toolsRegistry, chatModel.permissionManager)
+
+		// Initialize the integrated tools manager
+		chatModel.toolsManager = toolsManager.NewManager(toolsManager.Dependencies{
+			ToolsRegistry:     chatModel.toolsRegistry,
+			ToolsExecutor:     chatModel.toolsExecutor,
+			PermissionManager: chatModel.permissionManager,
+			ApprovalHandler:   chatModel.approvalHandler,
+		})
+
+		// Initialize the integrated API response handler
+		chatModel.apiResponseHandler = apiHandler.NewHandler(apiHandler.Dependencies{
+			FileTracker: chatModel.fileTracker,
+		})
 
 		// Set available tools in AI operations
 		if chatModel.toolsRegistry != nil {
@@ -502,6 +521,32 @@ func (m *NewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 
+	case toolsManager.CreateApprovalDialogMsg:
+		// Create and show approval dialog
+		m.toolsManager.CreateApprovalDialog(msg.ApprovalRequest, m.width, m.height)
+		m.refreshViewport()
+
+	case toolsManager.RequestToolApprovalMsg:
+		// Request approval for next tool in queue
+		if cmd := m.requestToolApproval(msg.ToolCall); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+	case toolsManager.TriggerFollowupMsg:
+		// Trigger follow-up API call after tool execution
+		if m.aiOperations != nil {
+			m.toolsManager.SetSuppressToolCalls(true)
+			if cmd := m.setLoading(true, "Continuing..."); cmd != nil {
+				follow := m.aiOperations.CallAPIWithToolsNoChoice("", "")
+				m.apiCancel = m.aiOperations.GetAPICancel()
+				cmds = append(cmds, cmd, follow)
+			} else {
+				follow := m.aiOperations.CallAPIWithToolsNoChoice("", "")
+				m.apiCancel = m.aiOperations.GetAPICancel()
+				cmds = append(cmds, follow)
+			}
+		}
+
 	case ai.StreamStartedMsg:
 		// Use streaming manager to handle stream start
 		if cmd := m.setLoading(true, "Thinking..."); cmd != nil {
@@ -617,11 +662,11 @@ func (m *NewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		// Handle tool approval dialog first (highest priority)
-		if m.showingApproval && m.approvalDialog != nil {
-			done, response := m.approvalDialog.Update(msg.String())
+		if m.toolsManager.IsShowingApproval() && m.toolsManager.GetApprovalDialog() != nil {
+			done, response := m.toolsManager.GetApprovalDialog().Update(msg.String())
 			if done && response != nil {
-				m.showingApproval = false
-				m.approvalDialog = nil
+				m.toolsManager.SetShowingApproval(false)
+				m.toolsManager.ClearApprovalDialog()
 				return m, m.executeApprovedTool(*response)
 			}
 			return m, nil // Dialog is still active
@@ -939,10 +984,10 @@ func (m NewModel) View() string {
 	footer := m.layoutManager.RenderFooter(inputArea, completions, completionIndex, m.width)
 
 	// Check if approval dialog should be shown
-	if m.showingApproval && m.approvalDialog != nil {
+	if m.toolsManager.IsShowingApproval() && m.toolsManager.GetApprovalDialog() != nil {
 		// Show only the approval dialog - don't show the main chat interface
 		// This prevents duplication and focuses the user on the approval request
-		dialogView := m.approvalDialog.View()
+		dialogView := m.toolsManager.GetApprovalDialog().View()
 		return fmt.Sprintf("%s\n%s", header, dialogView)
 	}
 
@@ -1088,7 +1133,7 @@ func (m *NewModel) callAPI(contextPrompt, userInput string) tea.Cmd {
     
     if hasTools {
         // Force non-streaming mode for tool-enabled conversations
-        fmt.Fprintf(os.Stderr, "[DEBUG] Disabling streaming due to tools being available\n")
+        debug.Printf("[DEBUG] Disabling streaming due to tools being available\n")
         cmd := m.aiOperations.CallAPI(contextPrompt, userInput)
         m.apiCancel = m.aiOperations.GetAPICancel()
         return cmd
@@ -1159,117 +1204,42 @@ func (m *NewModel) generateEditSuggestions() tea.Cmd {
 func (m *NewModel) handleAPIResponse(response string, err error) {
 	m.setLoading(false, "")
 	m.apiCancel = nil
-	if err != nil {
-		// Check if it's an enhanced APIError
-		if apiErr, ok := err.(api.APIError); ok {
-			// Show user-friendly message, but don't show cancellation as error
-			if apiErr.Message != "request cancelled by user" {
-				errorMsg := fmt.Sprintf("❌ %s", apiErr.UserMessage)
-				if apiErr.StatusCode > 0 {
-					errorMsg += fmt.Sprintf(" (HTTP %d)", apiErr.StatusCode)
-				}
-				m.addMessage("system", errorMsg)
-			}
-		} else {
-			// Fallback to generic error message
-			m.addMessage("system", fmt.Sprintf("❌ Error: %v", err))
+
+	// Delegate to API response handler
+	result := m.apiResponseHandler.HandleResponse(response, err, m.toolsManager.ShouldSuppressToolCalls(), m.fileContext)
+
+	// Clear suppress flag if it was set
+	if m.toolsManager.ShouldSuppressToolCalls() {
+		m.toolsManager.ClearSuppressToolCalls()
+		debug.Printf("[DEBUG] Suppressing tool call parsing for this response (tool_choice=none follow-up)\n")
+	}
+
+	if !result.Success {
+		// Handle error result
+		if result.ErrorMessage != "" {
+			m.addMessage("system", result.ErrorMessage)
 		}
-	} else {
-		// Check for tool calls in non-streaming response and parse them
-		toolCalls, filteredResponse := m.parseAndExtractToolCalls(response)
-		if len(toolCalls) > 0 {
-			// Handle tool calls like in streaming mode
+	} else if result.AssistantContent != "" {
+		// Handle successful response
+		m.addMessage("assistant", result.AssistantContent)
+
+		// Handle tool calls if present
+		if len(result.ToolCalls) > 0 {
 			toolMsg := ai.ToolCallsResponseMsg{
-				ToolCalls: toolCalls,
+				ToolCalls: result.ToolCalls,
 				Response:  nil,
 			}
-			// Just trigger the approval dialog like in streaming mode
 			m.handleToolCallsResponse(toolMsg)
-		} else {
-			m.addMessage("assistant", filteredResponse)
-		}
-		// Track files mentioned in the AI response
-		if m.fileTracker != nil {
-			m.fileTracker.ExtractFilesFromResponseWithContext(filteredResponse, m.fileContext.Files)
 		}
 	}
+
 	m.viewport.GotoBottom()
 }
 
 // parseAndExtractToolCalls parses DeepSeek's tool call markup and extracts proper tool calls
 func (m *NewModel) parseAndExtractToolCalls(content string) ([]api.ToolCall, string) {
-	var toolCalls []api.ToolCall
-
-	// Look for DeepSeek's tool call patterns
-	if !strings.Contains(content, "<｜tool▁calls▁begin｜>") {
-		return toolCalls, content
-	}
-
-	fmt.Fprintf(os.Stderr, "[DEBUG] Parsing tool calls from non-streaming response: %q\n", content)
-
-	filtered := content
-	callID := 1
-
-	// Find all tool call blocks
-	for {
-		start := strings.Index(filtered, "<｜tool▁calls▁begin｜>")
-		if start == -1 {
-			break
-		}
-
-		end := strings.Index(filtered[start:], "<｜tool▁calls▁end｜>")
-		if end == -1 {
-			// Incomplete tool call block, remove and break
-			filtered = filtered[:start]
-			break
-		}
-
-		end += start + len("<｜tool▁calls▁end｜>")
-		toolBlock := filtered[start:end]
-
-		// Extract individual tool calls within the block
-		toolStart := strings.Index(toolBlock, "<｜tool▁call▁begin｜>")
-		for toolStart != -1 {
-			toolEnd := strings.Index(toolBlock[toolStart:], "<｜tool▁call▁end｜>")
-			if toolEnd == -1 {
-				break
-			}
-
-			toolEnd += toolStart
-			individualCall := toolBlock[toolStart+len("<｜tool▁call▁begin｜>"):toolEnd]
-
-			// Split by separator to get function name and arguments
-			sepIndex := strings.Index(individualCall, "<｜tool▁sep｜>")
-			if sepIndex != -1 {
-				functionName := strings.TrimSpace(individualCall[:sepIndex])
-				argsJSON := strings.TrimSpace(individualCall[sepIndex+len("<｜tool▁sep｜>"):])
-
-				if functionName != "" && argsJSON != "" {
-					toolCall := api.ToolCall{
-						ID: fmt.Sprintf("call_%d", callID),
-						Type: "function",
-					}
-					toolCall.Function.Name = functionName
-					toolCall.Function.Arguments = argsJSON
-					toolCalls = append(toolCalls, toolCall)
-					callID++
-
-					fmt.Fprintf(os.Stderr, "[DEBUG] Extracted tool call: %s with args: %s\n", functionName, argsJSON)
-				}
-			}
-
-			// Find next tool call in this block
-			toolStart = strings.Index(toolBlock[toolEnd+len("<｜tool▁call▁end｜>"):], "<｜tool▁call▁begin｜>")
-			if toolStart != -1 {
-				toolStart += toolEnd + len("<｜tool▁call▁end｜>")
-			}
-		}
-
-		// Remove the entire tool call block from the content
-		filtered = filtered[:start] + filtered[end:]
-	}
-
-	return toolCalls, strings.TrimSpace(filtered)
+	// Always use the integrated apiResponseHandler
+	return m.apiResponseHandler.ParseAndExtractToolCalls(content)
 }
 
 // handleStreamCompleteInternal handles completion from streaming manager
@@ -1388,193 +1358,33 @@ func (m *NewModel) loadPreviousSession() error {
 
 // handleToolCallsResponse handles AI responses that request tool executions
 func (m *NewModel) handleToolCallsResponse(msg ai.ToolCallsResponseMsg) tea.Cmd {
-	if m.toolsExecutor == nil {
-		m.addMessage("system", "❌ Tools not available in this session")
-		return nil
-	}
-
-	// Store the pending tool calls
-	m.pendingToolCalls = msg.ToolCalls
-
-	// Show the first tool call for approval
-	if len(msg.ToolCalls) > 0 {
-		return m.requestToolApproval(msg.ToolCalls[0])
-	}
-
-	return nil
+	// Delegate to tools manager
+	return m.toolsManager.HandleToolCallsResponse(msg)
 }
 
 // requestToolApproval shows approval dialog for a tool call
 func (m *NewModel) requestToolApproval(toolCall api.ToolCall) tea.Cmd {
-	if m.approvalHandler == nil {
-		m.addMessage("system", "❌ Approval system not available")
-		return nil
-	}
-
-	// Enhanced debug logging
-	fmt.Fprintf(os.Stderr, "\n[DEBUG] ========== Tool Approval Request ==========\n")
-	fmt.Fprintf(os.Stderr, "[DEBUG] Tool: %s\n", toolCall.Function.Name)
-	fmt.Fprintf(os.Stderr, "[DEBUG] Raw arguments from AI: %q\n", toolCall.Function.Arguments)
-	fmt.Fprintf(os.Stderr, "[DEBUG] Arguments length: %d\n", len(toolCall.Function.Arguments))
-	
-	// Parse tool call arguments
-	var args map[string]interface{}
-
-	// Handle empty or invalid arguments
-	if toolCall.Function.Arguments == "" || toolCall.Function.Arguments == "null" {
-		// Use empty object for tools that don't require arguments
-		fmt.Fprintf(os.Stderr, "[DEBUG] Empty/null arguments detected, defaulting to empty map\n")
-		args = map[string]interface{}{}
-	} else if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
-		fmt.Fprintf(os.Stderr, "[DEBUG] JSON parse error: %v\n", err)
-		fmt.Fprintf(os.Stderr, "[DEBUG] Attempting to use empty map as fallback\n")
-		// If parsing fails and it's not empty, try to use defaults
-		args = map[string]interface{}{}
-	} else {
-		fmt.Fprintf(os.Stderr, "[DEBUG] Successfully parsed arguments: %+v\n", args)
-	}
-	fmt.Fprintf(os.Stderr, "[DEBUG] ==========================================\n\n")
-
-	// Get tool description
-	description := fmt.Sprintf("Execute %s", toolCall.Function.Name)
-	if tool, exists := m.toolsRegistry.Get(toolCall.Function.Name); exists {
-		description = tool.Description()
-	}
-
-	// Create approval request
-	approvalReq := tools.ApprovalRequest{
-		FunctionName: toolCall.Function.Name,
-		Description:  description,
-		Arguments:    args,
-	}
-
-	// Show approval dialog
-	m.approvalDialog = ui.NewApprovalDialog(approvalReq, m.width, m.height)
-	m.showingApproval = true
-
-	// Request approval (this will be handled by the approval dialog)
-	return nil
+	// Delegate to tools manager for tool approval handling
+	return m.toolsManager.HandleToolCallsResponse(ai.ToolCallsResponseMsg{ToolCalls: []api.ToolCall{toolCall}})
 }
 
 // executeApprovedTool executes a tool after user approval
 func (m *NewModel) executeApprovedTool(response tools.ApprovalResponse) tea.Cmd {
-	if !response.Approved || len(m.pendingToolCalls) == 0 {
-		m.addMessage("system", "🔧 Tool execution cancelled")
-		m.pendingToolCalls = nil
-		return nil
-	}
-
-	// Get the first pending tool call
-	toolCall := m.pendingToolCalls[0]
-	m.pendingToolCalls = m.pendingToolCalls[1:] // Remove from queue
-
-	// Show execution message
-	m.addMessage("system", fmt.Sprintf("🔧 Executing %s...", toolCall.Function.Name))
-
-	// Execute the tool
-	return func() tea.Msg {
-		// Parse arguments
-		var args json.RawMessage
-		// Handle empty or malformed arguments
-		if toolCall.Function.Arguments == "" || toolCall.Function.Arguments == "null" {
-			args = []byte("{}")
-		} else {
-			args = []byte(toolCall.Function.Arguments)
-		}
-
-		// Execute the tool
-		result, err := m.toolsExecutor.ExecuteWithoutPermission(context.Background(), toolCall.Function.Name, args)
-		if err != nil {
-			return ToolExecutionCompleteMsg{
-				ToolCall: toolCall,
-				Result:   nil,
-				Error:    err,
-			}
-		}
-
-		return ToolExecutionCompleteMsg{
-			ToolCall: toolCall,
-			Result:   result,
-			Error:    nil,
-		}
-	}
+	// Delegate to tools manager for tool execution
+	return m.toolsManager.ExecuteApprovedTool(response)
 }
 
-// ToolExecutionCompleteMsg represents completion of tool execution
-type ToolExecutionCompleteMsg struct {
-	ToolCall api.ToolCall
-	Result   *tools.ExecutionResult
-	Error    error
-}
+// Use ToolExecutionCompleteMsg from tools manager
+type ToolExecutionCompleteMsg = toolsManager.ToolExecutionCompleteMsg
 
 // handleToolExecutionComplete handles the completion of tool execution
 func (m *NewModel) handleToolExecutionComplete(msg ToolExecutionCompleteMsg) tea.Cmd {
-	if msg.Error != nil {
-		m.addMessage("system", fmt.Sprintf("❌ Tool execution failed: %v", msg.Error))
+	// Delegate to tools manager and handle success/failure
+	cmd, success := m.toolsManager.HandleToolExecutionComplete(msg, m.aiOperations)
+	if !success {
+		// Tool execution failed, no further action needed
 		return nil
 	}
-
-	if msg.Result == nil {
-		m.addMessage("system", "❌ Tool execution returned no result")
-		return nil
-	}
-
-	if !msg.Result.Success {
-		m.addMessage("system", fmt.Sprintf("❌ Tool execution failed: %s", msg.Result.Error))
-		return nil
-	}
-
-	// Show tool output
-	m.addMessage("system", fmt.Sprintf("🔧 %s result:\n\n%s", msg.ToolCall.Function.Name, msg.Result.Output))
-
-	// Add assistant message with tool calls and tool result to API messages
-	// This maintains proper conversation structure for the AI
-	m.apiMessages = append(m.apiMessages, api.Message{
-		Role:      "assistant",
-		Content:   "", // Empty content for tool call message
-		ToolCalls: []api.ToolCall{msg.ToolCall},
-	})
-
-	m.apiMessages = append(m.apiMessages, api.Message{
-		Role:       "tool",
-		Content:    msg.Result.Output,
-		ToolCallID: msg.ToolCall.ID,
-	})
-
-	// Sync updated conversation history to ai.Operations so follow-up calls include tool results
-	m.aiOperations.SetAPIMessages(m.apiMessages)
-
-	// If there are more pending tool calls, process the next one
-	if len(m.pendingToolCalls) > 0 {
-		// Validate the next tool call before processing
-		nextTool := m.pendingToolCalls[0]
-		if nextTool.Function.Name != "" && nextTool.ID != "" {
-			return m.requestToolApproval(nextTool)
-		} else {
-			// Clear invalid tool call from queue
-			m.pendingToolCalls = m.pendingToolCalls[1:]
-			// Check if there are more valid tools
-			if len(m.pendingToolCalls) > 0 {
-				return m.requestToolApproval(m.pendingToolCalls[0])
-			}
-		}
-	}
-
-    // Clear the pending tool calls queue when all tools are complete
-    m.pendingToolCalls = nil
-
-    // Trigger a follow-up completion using tools but with tool_choice="none"
-    // so the AI finalizes the response without re-invoking tools.
-    if m.aiOperations != nil {
-        if cmd := m.setLoading(true, "Continuing..."); cmd != nil {
-            follow := m.aiOperations.CallAPIWithToolsNoChoice("", "")
-            m.apiCancel = m.aiOperations.GetAPICancel()
-            return tea.Batch(cmd, follow)
-        }
-        follow := m.aiOperations.CallAPIWithToolsNoChoice("", "")
-        m.apiCancel = m.aiOperations.GetAPICancel()
-        return follow
-    }
-
-    return nil
+	// Return the command from tools manager (may trigger follow-up or next tool)
+	return cmd
 }

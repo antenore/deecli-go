@@ -87,6 +87,18 @@ func (r *Registry) GetAPITools() []api.Tool {
 	return apiTools
 }
 
+// List returns all registered tool names
+func (r *Registry) List() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	names := make([]string, 0, len(r.tools))
+	for name := range r.tools {
+		names = append(names, name)
+	}
+	return names
+}
+
 // DefaultRegistry is the global tool registry
 var DefaultRegistry = NewRegistry()
 

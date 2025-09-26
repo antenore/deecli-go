@@ -16,9 +16,9 @@ package api
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 
+	"github.com/antenore/deecli/internal/debug"
 	"github.com/antenore/deecli/internal/files"
 )
 
@@ -104,10 +104,20 @@ func (s *Service) ChatWithHistoryContextAndTools(ctx context.Context, conversati
 
 // ChatWithHistoryContextAndToolsWithChoice sends a chat request with tools, conversation history, code context and specified tool choice
 func (s *Service) ChatWithHistoryContextAndToolsWithChoice(ctx context.Context, conversationHistory []Message, contextPrompt, userMessage string, tools []Tool, toolChoice string) (*ChatResponse, error) {
-    messages := []Message{
-        {
-            Role: "system",
-            Content: `You are an expert software engineer and code reviewer.
+    var systemContent string
+
+    if toolChoice == "none" {
+        // Use a different system prompt when tools are disabled
+        systemContent = `You are an expert software engineer and code reviewer.
+You help developers understand, improve, and debug their code.
+Provide clear, actionable advice and explanations.
+
+You have just completed using tools to gather information about the project.
+Now provide your response based on the tool results that appear in the conversation history.
+Do NOT attempt to make any tool calls - just provide your analysis and advice based on the information already gathered.`
+    } else {
+        // Use the tool-focused system prompt when tools are available
+        systemContent = `You are an expert software engineer and code reviewer.
 You help developers understand, improve, and debug their code.
 Provide clear, actionable advice and explanations.
 You have access to tools to help you gather information about the project.
@@ -132,7 +142,13 @@ CRITICAL RULES:
 - If user asks to read "X", you must call read_file with {"path": "X"}
 - Tool calls without proper JSON arguments WILL FAIL
 - Start with list_files {"recursive": true} to see all files
-- Tool results appear as role:"tool" messages - use those results`,
+- Tool results appear as role:"tool" messages - use those results`
+    }
+
+    messages := []Message{
+        {
+            Role: "system",
+            Content: systemContent,
         },
     }
 
@@ -156,7 +172,7 @@ CRITICAL RULES:
 
 	// Debug: log tools being sent
 	for _, tool := range tools {
-		fmt.Fprintf(os.Stderr, "[DEBUG] Sending tool to API: %s - %s\n", tool.Function.Name, tool.Function.Description)
+		debug.Printf("[DEBUG] Sending tool to API: %s - %s\n", tool.Function.Name, tool.Function.Description)
 	}
 	return s.client.SendChatRequestWithToolsAndChoice(ctx, messages, tools, toolChoice)
 }
