@@ -4,6 +4,31 @@
 
 A terminal-based AI assistant for code, built with Go and DeepSeek models.
 
+## Project Status
+
+After developing DeeCLI, I discovered [OpenAI's Codex CLI](https://github.com/openai/codex), which provides similar functionality with broader model support. I'm evaluating the future direction of this project:
+
+- **Learning Resource**: DeeCLI remains valuable as a simpler, educational implementation with a clean Go codebase
+- **DeepSeek Focused**: Optimized specifically for DeepSeek users who want a lightweight solution
+- **Lightweight Alternative**: Smaller footprint than Codex for basic code assistance needs
+
+For production use with multiple model providers, consider [OpenAI Codex](https://github.com/openai/codex) which supports DeepSeek and other providers through OpenAI-compatible APIs.
+
+### Using DeepSeek with Codex
+
+If you want to use Codex with DeepSeek, add this to your `~/.codex/config.toml`:
+
+```toml
+model = "deepseek-chat"
+model_provider = "deepseek"
+
+[model_providers.deepseek]
+name = "DeepSeek"
+base_url = "https://api.deepseek.com/v1"
+env_key = "DEEPSEEK_API_KEY"
+wire_api = "chat"
+```
+
 ## What it does
 
 DeeCLI helps you work with code through chat and command-line interfaces. It loads files, analyzes code, and integrates with external editors.
